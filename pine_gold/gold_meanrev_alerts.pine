@@ -1,0 +1,129 @@
+// @version=5
+// =================================================================
+// GOLD MEAN-REVERSION ALERTS - Capital.com compatible
+// =================================================================
+//
+// Purpose: signal mean-reversion entries on XAUUSD H1 for manual
+// execution on Capital.com. NOT autonomous. You confirm each trade.
+//
+// Entry logic (LONG, mirrored for SHORT):
+//   1. Price has deviated >= devMult * ATR(14) BELOW the SMA(maLen)
+//   2. RSI(14) is oversold (< rsiLow)
+//   3. Current bar is a bullish reversal (close > open AND engulfs prev)
+//   4. Higher-TF trend filter: price above EMA200 (no longs in downtrend)
+//   5. Optional: inside the London/NY session (more liquidity, less slip)
+//
+// Risk:
+//   - SL  = entry +/- ATR(14) * slMult  (default 1.2 ATR)
+//   - TP  = SL distance * rr            (default R/R 1:1.5)
+//
+// Capital.com note:
+//   - Non-guaranteed stop min distance on gold ~3-5 pts. ATR(14) on
+//     gold H1 is typically 4-15 pts, so SL = ATR*1.2 is comfortably
+//     above the minimum.
+//   - If you use guaranteed stops (European morning min ~45 pts),
+//     bump slMult to ~3.0 and rr stays the same.
+//
+// No repaint: signals fire on bar close. Alerts use
+// alert.freq_once_per_bar_close.
+//
+// =================================================================
+
+strategy("Gold Mean-Reversion Alerts",
+     overlay              = true,
+     initial_capital      = 1000,
+     default_qty_type     = strategy.fixed,
+     default_qty_value    = 1,
+     commission_type      = strategy.commission.cash_per_order,
+     commission_value     = 0.5,
+     slippage             = 2,
+     process_orders_on_close = true)
+
+// =========================
+// Inputs
+// =========================
+maLen      = input.int(50,  "SMA length (mean)",            minval=10)
+emaTrend   = input.int(200, "EMA trend filter length",      minval=50)
+atrLen     = input.int(14,  "ATR length",                   minval=5)
+devMult    = input.float(2.0, "Deviation threshold (ATRs)", minval=0.5, step=0.1)
+rsiLen     = input.int(14,  "RSI length")
+rsiLow     = input.int(30,  "RSI oversold threshold")
+rsiHigh    = input.int(70,  "RSI overbought threshold")
+slMult     = input.float(1.2, "Stop-loss = ATR ×",          minval=0.3, step=0.1)
+rr         = input.float(1.5, "Risk/Reward (TP = SL × RR)", minval=0.5, step=0.1)
+useTrend   = input.bool(true,  "Filter by EMA200 trend")
+useSession = input.bool(true,  "Trade only inside session")
+sess       = input.session("0700-1700", "Session (exchange tz)")
+
+// =========================
+// Indicators
+// =========================
+ma   = ta.sma(close, maLen)
+emaT = ta.ema(close, emaTrend)
+atr  = ta.atr(atrLen)
+rsi  = ta.rsi(close, rsiLen)
+dev  = (close - ma) / atr
+
+// Session filter (uses chart's exchange timezone)
+inSession = not useSession or not na(time(timeframe.period, sess))
+
+// Trend filter
+trendUp   = not useTrend or close > emaT
+trendDown = not useTrend or close < emaT
+
+// Reversal candle patterns
+bullEngulf = close > open and close[1] < open[1] and open <= close[1] and close >= open[1]
+bearEngulf = close < open and close[1] > open[1] and open >= close[1] and close <= open[1]
+
+// =========================
+// Entry conditions
+// =========================
+longCond  = dev <= -devMult and rsi <  rsiLow  and bullEngulf and trendUp   and inSession
+shortCond = dev >=  devMult and rsi >  rsiHigh and bearEngulf and trendDown and inSession
+
+// =========================
+// SL / TP levels
+// =========================
+slDist  = atr * slMult
+slLong  = close - slDist
+tpLong  = close + slDist * rr
+slShort = close + slDist
+tpShort = close - slDist * rr
+
+// =========================
+// Strategy orders (for backtest)
+// =========================
+if longCond and strategy.position_size == 0
+    strategy.entry("L", strategy.long)
+    strategy.exit("L exit", from_entry="L", stop=slLong, limit=tpLong)
+
+if shortCond and strategy.position_size == 0
+    strategy.entry("S", strategy.short)
+    strategy.exit("S exit", from_entry="S", stop=slShort, limit=tpShort)
+
+// =========================
+// Visuals
+// =========================
+plot(ma,   "SMA (mean)",  color=color.orange, linewidth=2)
+plot(emaT, "EMA trend",   color=color.gray)
+plotshape(longCond,  "BUY",  shape.triangleup,   location.belowbar, color.lime, size=size.small, text="BUY")
+plotshape(shortCond, "SELL", shape.triangledown, location.abovebar, color.red,  size=size.small, text="SELL")
+
+// =========================
+// Alerts (one shot per closed bar)
+// =========================
+if longCond
+    alert("GOLD BUY (mean-rev)" +
+          "\nEntry: " + str.tostring(close,  format.mintick) +
+          "\nSL:    " + str.tostring(slLong, format.mintick) + "  (-" + str.tostring(slDist, "#.##") + " pts)" +
+          "\nTP:    " + str.tostring(tpLong, format.mintick) + "  (+" + str.tostring(slDist * rr, "#.##") + " pts)" +
+          "\nR/R 1:" + str.tostring(rr, "#.##"),
+          alert.freq_once_per_bar_close)
+
+if shortCond
+    alert("GOLD SELL (mean-rev)" +
+          "\nEntry: " + str.tostring(close,   format.mintick) +
+          "\nSL:    " + str.tostring(slShort, format.mintick) + "  (+" + str.tostring(slDist, "#.##") + " pts)" +
+          "\nTP:    " + str.tostring(tpShort, format.mintick) + "  (-" + str.tostring(slDist * rr, "#.##") + " pts)" +
+          "\nR/R 1:" + str.tostring(rr, "#.##"),
+          alert.freq_once_per_bar_close)
