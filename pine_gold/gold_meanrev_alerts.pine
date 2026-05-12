@@ -45,15 +45,16 @@ strategy("Gold Mean-Reversion Alerts",
 maLen      = input.int(50,  "SMA length (mean)",            minval=10)
 emaTrend   = input.int(200, "EMA trend filter length",      minval=50)
 atrLen     = input.int(14,  "ATR length",                   minval=5)
-devMult    = input.float(2.0, "Deviation threshold (ATRs)", minval=0.5, step=0.1)
+devMult    = input.float(1.3, "Deviation threshold (ATRs)", minval=0.3, step=0.1)
 rsiLen     = input.int(14,  "RSI length")
-rsiLow     = input.int(30,  "RSI oversold threshold")
-rsiHigh    = input.int(70,  "RSI overbought threshold")
+rsiLow     = input.int(40,  "RSI oversold threshold")
+rsiHigh    = input.int(60,  "RSI overbought threshold")
 slMult     = input.float(1.2, "Stop-loss = ATR ×",          minval=0.3, step=0.1)
 rr         = input.float(1.5, "Risk/Reward (TP = SL × RR)", minval=0.5, step=0.1)
 useTrend   = input.bool(true,  "Filter by EMA200 trend")
 useSession = input.bool(true,  "Trade only inside session")
 sess       = input.session("0700-1700", "Session (exchange tz)")
+patternMode = input.string("Color flip", "Reversal pattern", options=["None", "Color flip", "Engulfing"])
 
 // =========================
 // Indicators
@@ -74,12 +75,16 @@ trendDown = not useTrend or close < emaT
 // Reversal candle patterns
 bullEngulf = close > open and close[1] < open[1] and open <= close[1] and close >= open[1]
 bearEngulf = close < open and close[1] > open[1] and open >= close[1] and close <= open[1]
+bullFlip   = close > open and close[1] < open[1]    // green after red
+bearFlip   = close < open and close[1] > open[1]    // red after green
+bullPat    = patternMode == "None" ? true : patternMode == "Color flip" ? bullFlip : bullEngulf
+bearPat    = patternMode == "None" ? true : patternMode == "Color flip" ? bearFlip : bearEngulf
 
 // =========================
 // Entry conditions
 // =========================
-longCond  = dev <= -devMult and rsi <  rsiLow  and bullEngulf and trendUp   and inSession
-shortCond = dev >=  devMult and rsi >  rsiHigh and bearEngulf and trendDown and inSession
+longCond  = dev <= -devMult and rsi <  rsiLow  and bullPat and trendUp   and inSession
+shortCond = dev >=  devMult and rsi >  rsiHigh and bearPat and trendDown and inSession
 
 // =========================
 // SL / TP levels
