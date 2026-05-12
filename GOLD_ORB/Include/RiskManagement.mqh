@@ -87,45 +87,13 @@ void MonitorVirtualPostion(VirtualTradeInfo &VTrade)
         }
 
 
-      //Update Position container - resizing
-      bool position_update = false;
-      i=0;
-      do
-
+      // Remove all positions marked "closed" in a single backward sweep.
+      // (The previous do/while could infinite-loop when the array became empty.)
+      for(int k = ArraySize(VTrade.position) - 1; k >= 0; k--)
         {
-         total_positions = ArraySize(VTrade.position);
-         for(i=0 ; i <= total_positions -1; i++)
-
-           {
-
-            if(total_positions ==0)
-               position_update = true;
-
-            if(VTrade.position[i].comment == "closed")
-              {
-               //remove this element on the array
-               ArrayRemove(VTrade.position,i,1);
-
-
-               if(i== total_positions-1)
-
-                 {
-                  position_update = true;
-                 }
-
-               break;
-
-              }
-
-            if(i== total_positions-1)
-
-              {
-               position_update = true;
-              }
-
-           }
+         if(VTrade.position[k].comment == "closed")
+            ArrayRemove(VTrade.position, k, 1);
         }
-      while(position_update == false);
 
      }
 
@@ -165,44 +133,22 @@ bool CheckSlope(VirtualTradeInfo &VTrade, int offset_length)
 
   }
 //+------------------------------------------------------------------+
-bool LossStreakCounter(VirtualTradeInfo &VTrade, double streak)
+// Renamed from LossStreakCounter to avoid name collision with the input variable.
+// Returns true if the last 'streak' closed trades were all losses.
+// closetrades[0] is a sentinel populated by Init() with no result, so it is skipped.
+bool IsLossStreak(VirtualTradeInfo &VTrade, int streak)
   {
-   
-   
-   int index = ArraySize(VTrade.closetrades)-1;
-   double container[];
-   ArrayResize(container,streak);
-   int i =0;
+   if(streak <= 0) return(false);
 
-   
-   if(ArraySize(VTrade.closetrades) >= streak)
+   int total = ArraySize(VTrade.closetrades);
+   if(total - 1 < streak) return(false);  // not enough real closed trades
+
+   for(int i = total - 1; i > total - 1 - streak; i--)
      {
-
-      for(i = index ; i> index - streak; i--)
-
-        {
-
-         if(VTrade.closetrades[i].result == "WIN")
-            container[index - i] = 0;
-
-         if(VTrade.closetrades[i].result == "LOSS")
-            container[index - i] = 1;
-
-        }
-
-      if(MathSum(container) == streak)
-        {
-         return(true);
-        }
-      else
+      if(VTrade.closetrades[i].result != "LOSS")
          return(false);
      }
-
-   else
-      return (false);
-      
-     
-
+   return(true);
   }
 //+------------------------------------------------------------------+
 

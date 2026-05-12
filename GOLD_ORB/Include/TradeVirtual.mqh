@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Playground Inc 2021"
 #property link      "https://www.mql5.com"
-#property version   "1.00"
+#property version   "1.10"
 
 #define MAX_RETRIES 5  // Max retries on error
 #define RETRY_DELAY 3000 // Retry delay in ms
@@ -99,6 +99,18 @@ struct VirtualTradeInfo
 
 
 
+// Compute realized P&L in account currency using tick value/size.
+// (The previous formula multiplied by ACCOUNT_LEVERAGE, which has nothing to do
+// with profit conversion and overstated the virtual P&L by orders of magnitude.)
+double VirtualProfit(string pSymbol, string posType, double openPrice, double closePrice, double volume)
+  {
+   double tickSize  = SymbolInfoDouble(pSymbol, SYMBOL_TRADE_TICK_SIZE);
+   double tickValue = SymbolInfoDouble(pSymbol, SYMBOL_TRADE_TICK_VALUE);
+   if(tickSize <= 0.0) return(0.0);
+
+   double priceDiff = (posType == "long") ? (closePrice - openPrice) : (openPrice - closePrice);
+   return(priceDiff / tickSize * tickValue * volume);
+  }
 
 
 
@@ -209,7 +221,7 @@ bool CTradeVirtual::OpenPosition(VirtualTradeInfo &vTrade, string pSymbol, ENUM_
      {
       vTrade.deals[deal_index].type = "sell";
       vTrade.deals[deal_index].direction = "in";
-      vTrade.position[position_index].price = SymbolInfoDouble(pSymbol,SYMBOL_BID);
+      vTrade.deals[deal_index].price = SymbolInfoDouble(pSymbol,SYMBOL_BID);
 
      }
 
@@ -222,137 +234,51 @@ bool CTradeVirtual::OpenPosition(VirtualTradeInfo &vTrade, string pSymbol, ENUM_
   }
 
 
-// Open pending order
+// Close a virtual position at its SL or TP price (not at the live market quote).
 bool CTradeVirtual::OpenPending(VirtualTradeInfo &vTrade,int index, string pType)
   {
+   string pSymbol    = vTrade.position[index].symbol;
+   string posType    = vTrade.position[index].type;
+   double openPrice  = vTrade.position[index].price;
+   double volume     = vTrade.position[index].volume;
+   double closePrice = (pType == "tp") ? vTrade.position[index].tp : vTrade.position[index].sl;
+   double profit     = VirtualProfit(pSymbol, posType, openPrice, closePrice, volume);
 
-   //Update Deal Container
+   // Deals row
+   ArrayResize(vTrade.deals, ArraySize(vTrade.deals) + 1);
+   int deal_index = ArraySize(vTrade.deals) - 1;
 
-   //Deal Info
-  //Construct Array for new deal
-   ArrayResize(vTrade.deals,ArraySize(vTrade.deals)+1);
-   int deal_index = ArraySize(vTrade.deals)-1;
-   string pSymbol = vTrade.position[index].symbol;
-
-   vTrade.deals[deal_index].dealno = deal_index +1;
-   vTrade.deals[deal_index].symbol = vTrade.position[index].symbol;
-   vTrade.deals[deal_index].time = TimeCurrent();
-   vTrade.deals[deal_index].volume = vTrade.position[index].volume;
-
+   vTrade.deals[deal_index].dealno     = deal_index + 1;
+   vTrade.deals[deal_index].symbol     = pSymbol;
+   vTrade.deals[deal_index].time       = TimeCurrent();
+   vTrade.deals[deal_index].volume     = volume;
    vTrade.deals[deal_index].commission = 0.0;
-   vTrade.deals[deal_index].swap = 0.0;
-   vTrade.deals[deal_index].profit = 0.0;
+   vTrade.deals[deal_index].swap       = 0.0;
+   vTrade.deals[deal_index].profit     = profit;
+   vTrade.deals[deal_index].price      = closePrice;
+   vTrade.deals[deal_index].type       = (posType == "long") ? "sell" : "buy";
+   vTrade.deals[deal_index].direction  = "out";
+   vTrade.deals[deal_index].balance    = vTrade.deals[deal_index-1].balance + profit;
 
+   // Closed trade row
+   ArrayResize(vTrade.closetrades, ArraySize(vTrade.closetrades) + 1);
+   int closedtrade_index = ArraySize(vTrade.closetrades) - 1;
 
-
-
-
-   if(pType == "tp" && vTrade.position[index].type == "long")
-     {
-      vTrade.deals[deal_index].type = "sell";
-      vTrade.deals[deal_index].direction = "out";
-      vTrade.deals[deal_index].price = SymbolInfoDouble(pSymbol,SYMBOL_BID);
-      vTrade.deals[deal_index].profit = (SymbolInfoDouble(pSymbol,SYMBOL_BID) - vTrade.position[index].price)*vTrade.position[index].volume*AccountInfoInteger(ACCOUNT_LEVERAGE);
-
-
-     }
-   if(pType == "sl" && vTrade.position[index].type == "long")
-     {
-      vTrade.deals[deal_index].type = "sell";
-      vTrade.deals[deal_index].direction = "out";
-      vTrade.deals[deal_index].price = SymbolInfoDouble(pSymbol,SYMBOL_BID);
-      vTrade.deals[deal_index].profit = (SymbolInfoDouble(pSymbol,SYMBOL_BID) - vTrade.position[index].price)*vTrade.position[index].volume*AccountInfoInteger(ACCOUNT_LEVERAGE);
-
-
-     }
-
-   if(pType == "tp" && vTrade.position[index].type == "short")
-     {
-      vTrade.deals[deal_index].type = "buy";
-      vTrade.deals[deal_index].direction = "out";
-      vTrade.deals[deal_index].price = SymbolInfoDouble(pSymbol,SYMBOL_ASK);
-      vTrade.deals[deal_index].profit = (vTrade.position[index].price-SymbolInfoDouble(pSymbol,SYMBOL_ASK))*vTrade.position[index].volume*AccountInfoInteger(ACCOUNT_LEVERAGE);
-
-
-     }
-
-   if(pType == "sl" && vTrade.position[index].type == "short")
-     {
-      vTrade.deals[deal_index].type = "buy";
-      vTrade.deals[deal_index].direction = "out";
-      vTrade.deals[deal_index].price = SymbolInfoDouble(pSymbol,SYMBOL_ASK);
-      vTrade.deals[deal_index].profit = (vTrade.position[index].price-SymbolInfoDouble(pSymbol,SYMBOL_ASK))*vTrade.position[index].volume*AccountInfoInteger(ACCOUNT_LEVERAGE);
-
-
-     }
-
-
-
-   vTrade.deals[deal_index].balance =vTrade.deals[deal_index-1].balance + ((vTrade.deals[deal_index].commission)+(vTrade.deals[deal_index].swap)+(vTrade.deals[deal_index].profit));
-
-
-
-//Closed trade Container
-
-   ArrayResize(vTrade.closetrades,ArraySize(vTrade.closetrades)+1);
-   int closedtrade_index = ArraySize(vTrade.closetrades)-1;
-
-   vTrade.closetrades[closedtrade_index].timeopen = vTrade.position[index].time;
-   vTrade.closetrades[closedtrade_index].timeclose = TimeCurrent();
-   vTrade.closetrades[closedtrade_index].priceopen = vTrade.position[index].price;
-
-   vTrade.closetrades[closedtrade_index].symbol = vTrade.position[index].symbol;
-   vTrade.closetrades[closedtrade_index].volume = vTrade.position[index].volume;
-
-
+   vTrade.closetrades[closedtrade_index].timeopen   = vTrade.position[index].time;
+   vTrade.closetrades[closedtrade_index].timeclose  = TimeCurrent();
+   vTrade.closetrades[closedtrade_index].priceopen  = openPrice;
+   vTrade.closetrades[closedtrade_index].priceclose = closePrice;
+   vTrade.closetrades[closedtrade_index].symbol     = pSymbol;
+   vTrade.closetrades[closedtrade_index].volume     = volume;
    vTrade.closetrades[closedtrade_index].commission = 0.0;
-   vTrade.closetrades[closedtrade_index].swap = 0.0;
-   vTrade.closetrades[closedtrade_index].profit = 0.0;
-
-
-
-
-
-   if(vTrade.position[index].type == "long")
-     {
-
-
-      vTrade.closetrades[closedtrade_index].type = "long";
-      vTrade.closetrades[closedtrade_index].priceclose = SymbolInfoDouble(pSymbol,SYMBOL_BID);
-      vTrade.closetrades[closedtrade_index].profit = (SymbolInfoDouble(pSymbol,SYMBOL_BID) - vTrade.position[index].price)*vTrade.position[index].volume*AccountInfoInteger(ACCOUNT_LEVERAGE);
-
-
-     }
-
-
-   if(vTrade.position[index].type == "short")
-     {
-      vTrade.closetrades[closedtrade_index].type = "short";
-      vTrade.closetrades[closedtrade_index].priceclose = SymbolInfoDouble(pSymbol,SYMBOL_ASK);
-      vTrade.closetrades[closedtrade_index].profit = (vTrade.position[index].price-SymbolInfoDouble(pSymbol,SYMBOL_ASK))*vTrade.position[index].volume*AccountInfoInteger(ACCOUNT_LEVERAGE);
-
-
-     }
-
-
-   if(vTrade.closetrades[closedtrade_index].profit > 0)
-      vTrade.closetrades[closedtrade_index].result = "WIN";
-   else
-      if(vTrade.closetrades[closedtrade_index].profit < 0)
-         vTrade.closetrades[closedtrade_index].result = "LOSS";
-   vTrade.closetrades[closedtrade_index].balance =vTrade.closetrades[closedtrade_index-1].balance + ((vTrade.closetrades[closedtrade_index].commission)+(vTrade.closetrades[closedtrade_index].swap)+(vTrade.closetrades[closedtrade_index].profit));
-
-
-
-
-
+   vTrade.closetrades[closedtrade_index].swap       = 0.0;
+   vTrade.closetrades[closedtrade_index].profit     = profit;
+   vTrade.closetrades[closedtrade_index].type       = posType;
+   vTrade.closetrades[closedtrade_index].result     = (profit > 0) ? "WIN" : (profit < 0 ? "LOSS" : "BE");
+   vTrade.closetrades[closedtrade_index].balance    = vTrade.closetrades[closedtrade_index-1].balance + profit;
 
    vTrade.deals[deal_index].realportbalance = AccountInfoDouble(ACCOUNT_BALANCE);
-   return (true);
-
-
-
-
+   return(true);
   }
 
 
