@@ -1,0 +1,39 @@
+instrument:
+  epic: GOLD
+  timeframe: MINUTE_15
+  pip_value: 0.01
+
+sessions:
+  london:
+    start: "07:00"
+    end: "10:00"
+  newyork:
+    start: "12:30"
+    end: "15:30"
+  trade_only_in_sessions: true
+
+risk:
+  capital_eur: 1000
+  risk_per_trade_pct: 1.0
+  max_daily_loss_pct: 3.0
+  max_open_positions: 1
+  atr_period: 14
+  sl_atr_multiple: 1.5
+  tp_atr_multiple: 2.5
+
+signals:
+  ema_fast: 21
+  ema_slow: 55
+  rsi_period: 14
+  rsi_overbought: 70
+  rsi_oversold: 30
+  breakout_lookback: 20
+
+sentiment:
+  enabled: true
+  veto_threshold: -0.6
+  cache_ttl_seconds: 1800
+
+execution:
+  dry_run: true
+  slippage_pips: 2
