@@ -96,6 +96,7 @@ def cmd_backtest(
     yf_period: str = "60d",
     with_sentiment: bool = False,
     sentiment_cache: str = ".backtest_sentiment_cache.json",
+    dump_dir: str | None = None,
 ) -> int:
     if source == "csv":
         if not csv:
@@ -133,6 +134,7 @@ def cmd_backtest(
         return 4
 
     sentiment_filter = None
+    sentiment_decisions: list[dict] | None = None
     if with_sentiment:
         anth = load_anthropic_settings()
         if not anth.api_key:
@@ -148,7 +150,7 @@ def cmd_backtest(
             analyzer = SentimentAnalyzer(
                 anth, cache_ttl_seconds=cfg["sentiment"]["cache_ttl_seconds"]
             )
-            sentiment_filter = build_backtest_sentiment_filter(
+            sentiment_filter, sentiment_decisions = build_backtest_sentiment_filter(
                 macro=macro,
                 analyzer=analyzer,
                 veto_threshold=float(cfg["sentiment"]["veto_threshold"]),
@@ -159,6 +161,29 @@ def cmd_backtest(
     print(json.dumps(result.metrics, indent=2, default=str))
     if not result.trades.empty:
         log.info("%d trades simulés", len(result.trades))
+
+    if dump_dir is not None:
+        out = Path(dump_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        trades_path = out / "backtest_trades.csv"
+        if not result.trades.empty:
+            result.trades.to_csv(trades_path, index=False)
+            log.info("Trades écrits : %s", trades_path)
+        if sentiment_decisions:
+            sent_df = pd.DataFrame(sentiment_decisions)
+            sent_df["key_drivers"] = sent_df["key_drivers"].apply(
+                lambda xs: "; ".join(xs) if isinstance(xs, list) else ""
+            )
+            sent_path = out / "backtest_sentiment.csv"
+            sent_df.to_csv(sent_path, index=False)
+            taken = (~sent_df["vetoed"]).sum()
+            vetoed = sent_df["vetoed"].sum()
+            log.info(
+                "Décisions sentiment écrites : %s (%d prises, %d vétos)",
+                sent_path,
+                taken,
+                vetoed,
+            )
     return 0
 
 
@@ -196,6 +221,13 @@ def main(argv: list[str] | None = None) -> int:
         default=".backtest_sentiment_cache.json",
         help="Fichier de cache du sentiment (def: .backtest_sentiment_cache.json)",
     )
+    bt.add_argument(
+        "--dump",
+        nargs="?",
+        const="backtest_results",
+        default=None,
+        help="Dump trades + décisions sentiment en CSV (def dir si flag nu: backtest_results/)",
+    )
 
     args = parser.parse_args(argv)
     cfg = load_yaml_config()
@@ -212,6 +244,7 @@ def main(argv: list[str] | None = None) -> int:
             yf_period=args.yf_period,
             with_sentiment=args.with_sentiment,
             sentiment_cache=args.sentiment_cache,
+            dump_dir=args.dump,
         )
     return 1
 

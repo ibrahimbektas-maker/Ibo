@@ -76,6 +76,16 @@ python -m ibo.main backtest --source yfinance --yf-interval 1h --yf-period 365d 
 
 Les appels Claude sont mis en cache par date (UTC) dans `.backtest_sentiment_cache.json` — un rerun n'appelle plus l'API. Pour repartir de zéro, supprimer le fichier.
 
+**Inspecter les décisions** — pour comprendre pourquoi un trade a été vetoé ou pris :
+
+```bash
+python -m ibo.main backtest --source yfinance --yf-interval 1h --yf-period 365d --with-sentiment --dump
+```
+
+Produit dans `backtest_results/` :
+- `backtest_trades.csv` : trades exécutés avec entry/exit/PnL
+- `backtest_sentiment.csv` : toutes les décisions Claude (ts, side, vetoed, score, direction, rationale, key_drivers)
+
 ## Configuration
 
 Tout se passe dans `config.yaml` :
