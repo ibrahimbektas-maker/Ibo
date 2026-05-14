@@ -8,7 +8,7 @@ import pandas as pd
 
 from .technical import compute_features, in_session
 
-SentimentFilter = Callable[[pd.Timestamp, str], bool]
+SentimentSizer = Callable[[pd.Timestamp, str], float]
 
 
 @dataclass
@@ -54,7 +54,7 @@ def _summary(trades: pd.DataFrame, equity: pd.Series, capital: float) -> dict[st
 def run_backtest(
     df: pd.DataFrame,
     cfg: dict,
-    sentiment_filter: SentimentFilter | None = None,
+    sentiment_sizer: SentimentSizer | None = None,
 ) -> BacktestResult:
     feats = compute_features(df, cfg)
     rcfg = cfg["risk"]
@@ -92,6 +92,7 @@ def run_backtest(
                         "entry": position["entry"],
                         "exit": exit_price,
                         "size": position["size"],
+                        "sentiment_mult": position.get("sentiment_mult", 1.0),
                         "pnl": pnl,
                     }
                 )
@@ -111,15 +112,17 @@ def run_backtest(
             elif trend_dn and breakout_dn and rsi_short:
                 side = "SHORT"
 
-            if side is not None and sentiment_filter is not None:
-                if sentiment_filter(ts, side):
+            sentiment_mult = 1.0
+            if side is not None and sentiment_sizer is not None:
+                sentiment_mult = sentiment_sizer(ts, side)
+                if sentiment_mult <= 0:
                     side = None
 
             if side is not None:
                 sl_dist = row["atr"] * rcfg["sl_atr_multiple"]
                 tp_dist = row["atr"] * rcfg["tp_atr_multiple"]
                 risk_amount = capital * rcfg["risk_per_trade_pct"] / 100.0
-                size = risk_amount / sl_dist if sl_dist > 0 else 0
+                size = (risk_amount / sl_dist) * sentiment_mult if sl_dist > 0 else 0
                 if size > 0:
                     entry = row["close"]
                     sl = entry - sl_dist if side == "LONG" else entry + sl_dist
@@ -131,6 +134,7 @@ def run_backtest(
                         "tp": tp,
                         "size": size,
                         "side": side,
+                        "sentiment_mult": sentiment_mult,
                     }
 
         equity_curve.append((ts, equity))

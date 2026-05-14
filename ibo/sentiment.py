@@ -116,22 +116,49 @@ class SentimentAnalyzer:
         return result
 
 
-def build_backtest_sentiment_filter(
+def _classify_multiplier(
+    aligned_score: float,
+    veto_threshold: float,
+    reduce_threshold: float,
+    reduce_multiplier: float,
+    boost_threshold: float,
+    boost_multiplier: float,
+) -> tuple[float, str]:
+    """Mappe un score aligné (positif = confirmation, négatif = désaccord) vers un
+    multiplicateur de taille et une étiquette d'action."""
+    if aligned_score <= veto_threshold:
+        return 0.0, "veto"
+    if aligned_score <= reduce_threshold:
+        return reduce_multiplier, "reduce"
+    if aligned_score >= boost_threshold:
+        return boost_multiplier, "boost"
+    return 1.0, "neutral"
+
+
+def build_backtest_sentiment_sizer(
     macro: pd.DataFrame,
     analyzer: SentimentAnalyzer,
-    veto_threshold: float,
+    sentiment_cfg: dict[str, Any],
     cache_path: Path | None = None,
-) -> tuple[Callable[[pd.Timestamp, str], bool], list[dict[str, Any]]]:
-    """Construit un filtre (ts, side) -> True si véto, et un log des décisions.
+) -> tuple[Callable[[pd.Timestamp, str], float], list[dict[str, Any]]]:
+    """Construit un sizer (ts, side) -> multiplicateur de taille, et un log.
 
-    - macro est l'historique daily complet ; on slice à `ts` (exclu) à chaque appel
-      pour éviter tout look-ahead bias.
-    - Le résultat Claude est mis en cache par date (UTC) et persisté sur disque
-      si cache_path est fourni — un rerun n'appelle plus l'API.
-    - Le log accumulé contient une entrée par décision : ts, side, vetoed, score,
-      direction, rationale, key_drivers.
+    Le multiplicateur dépend de l'aligned_score = score (LONG) ou -score (SHORT) :
+      - <= veto_threshold (def -0.6)    : 0.0   (action "veto")
+      - <= reduce_threshold (def -0.4)  : 0.5   (action "reduce")
+      - >= boost_threshold (def +0.4)   : 1.5   (action "boost")
+      - sinon                            : 1.0   (action "neutral")
+
+    macro est l'historique daily complet ; on slice à `ts - 1j` pour éviter tout
+    look-ahead bias. Le résultat Claude est cache par date sur disque.
     """
     from .data import macro_snapshot
+
+    veto_t = float(sentiment_cfg["veto_threshold"])
+    reduce_t = float(sentiment_cfg["reduce_threshold"])
+    reduce_m = float(sentiment_cfg["reduce_multiplier"])
+    boost_t = float(sentiment_cfg["boost_threshold"])
+    boost_m = float(sentiment_cfg["boost_multiplier"])
 
     date_cache: dict[str, dict[str, Any]] = {}
     if cache_path is not None and cache_path.exists():
@@ -152,38 +179,34 @@ def build_backtest_sentiment_filter(
         except OSError as e:
             log.warning("Échec d'écriture du cache (%s)", e)
 
-    def filter_fn(ts: pd.Timestamp, side: str) -> bool:
+    def _log(ts: pd.Timestamp, side: str, score: float | None, entry: dict | None,
+             aligned: float | None, multiplier: float, action: str) -> None:
+        decisions.append(
+            {
+                "ts": ts,
+                "side": side,
+                "score": score,
+                "aligned_score": aligned,
+                "multiplier": multiplier,
+                "action": action,
+                "direction": (entry or {}).get("direction"),
+                "rationale": (entry or {}).get("rationale", ""),
+                "key_drivers": (entry or {}).get("key_drivers", []),
+            }
+        )
+
+    def sizer_fn(ts: pd.Timestamp, side: str) -> float:
         date_key = pd.Timestamp(ts).normalize().isoformat()
         entry = date_cache.get(date_key)
         if entry is None:
             history = macro.loc[: ts - pd.Timedelta(days=1)] if not macro.empty else macro
             if history.empty:
-                decisions.append(
-                    {
-                        "ts": ts,
-                        "side": side,
-                        "vetoed": False,
-                        "score": None,
-                        "direction": None,
-                        "rationale": "no_macro_history",
-                        "key_drivers": [],
-                    }
-                )
-                return False
+                _log(ts, side, None, None, None, 1.0, "no_macro_history")
+                return 1.0
             snap = macro_snapshot(history)
             if all(v is None for v in snap.values()):
-                decisions.append(
-                    {
-                        "ts": ts,
-                        "side": side,
-                        "vetoed": False,
-                        "score": None,
-                        "direction": None,
-                        "rationale": "empty_snapshot",
-                        "key_drivers": [],
-                    }
-                )
-                return False
+                _log(ts, side, None, None, None, 1.0, "empty_snapshot")
+                return 1.0
             res = analyzer.analyze(snap)
             entry = {
                 "score": res.score,
@@ -195,23 +218,11 @@ def build_backtest_sentiment_filter(
             _persist()
 
         score = float(entry["score"])
-        vetoed = False
-        if side == "LONG" and score < veto_threshold:
-            vetoed = True
-        elif side == "SHORT" and score > -veto_threshold:
-            vetoed = True
-
-        decisions.append(
-            {
-                "ts": ts,
-                "side": side,
-                "vetoed": vetoed,
-                "score": score,
-                "direction": entry.get("direction"),
-                "rationale": entry.get("rationale", ""),
-                "key_drivers": entry.get("key_drivers", []),
-            }
+        aligned = score if side == "LONG" else -score
+        multiplier, action = _classify_multiplier(
+            aligned, veto_t, reduce_t, reduce_m, boost_t, boost_m
         )
-        return vetoed
+        _log(ts, side, score, entry, aligned, multiplier, action)
+        return multiplier
 
-    return filter_fn, decisions
+    return sizer_fn, decisions

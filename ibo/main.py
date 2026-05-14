@@ -23,7 +23,7 @@ from .data import (
     macro_snapshot,
 )
 from .risk import RiskManager
-from .sentiment import SentimentAnalyzer, build_backtest_sentiment_filter
+from .sentiment import SentimentAnalyzer, build_backtest_sentiment_sizer
 from .trader import Trader
 
 logging.basicConfig(
@@ -133,7 +133,7 @@ def cmd_backtest(
         log.error("Pas de données pour le backtest")
         return 4
 
-    sentiment_filter = None
+    sentiment_sizer = None
     sentiment_decisions: list[dict] | None = None
     if with_sentiment:
         anth = load_anthropic_settings()
@@ -150,14 +150,14 @@ def cmd_backtest(
             analyzer = SentimentAnalyzer(
                 anth, cache_ttl_seconds=cfg["sentiment"]["cache_ttl_seconds"]
             )
-            sentiment_filter, sentiment_decisions = build_backtest_sentiment_filter(
+            sentiment_sizer, sentiment_decisions = build_backtest_sentiment_sizer(
                 macro=macro,
                 analyzer=analyzer,
-                veto_threshold=float(cfg["sentiment"]["veto_threshold"]),
+                sentiment_cfg=cfg["sentiment"],
                 cache_path=Path(sentiment_cache),
             )
 
-    result = run_backtest(df, cfg, sentiment_filter=sentiment_filter)
+    result = run_backtest(df, cfg, sentiment_sizer=sentiment_sizer)
     print(json.dumps(result.metrics, indent=2, default=str))
     if not result.trades.empty:
         log.info("%d trades simulés", len(result.trades))
@@ -176,14 +176,8 @@ def cmd_backtest(
             )
             sent_path = out / "backtest_sentiment.csv"
             sent_df.to_csv(sent_path, index=False)
-            taken = (~sent_df["vetoed"]).sum()
-            vetoed = sent_df["vetoed"].sum()
-            log.info(
-                "Décisions sentiment écrites : %s (%d prises, %d vétos)",
-                sent_path,
-                taken,
-                vetoed,
-            )
+            counts = sent_df["action"].value_counts().to_dict()
+            log.info("Décisions sentiment écrites : %s (%s)", sent_path, counts)
     return 0
 
 

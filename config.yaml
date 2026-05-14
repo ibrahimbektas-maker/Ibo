@@ -31,7 +31,11 @@ signals:
 
 sentiment:
   enabled: true
-  veto_threshold: -0.6
+  veto_threshold: -0.6       # aligned_score <= veto_threshold -> taille x 0 (veto)
+  reduce_threshold: -0.4     # aligned_score <= reduce_threshold -> taille x reduce_multiplier
+  reduce_multiplier: 0.5
+  boost_threshold: 0.4       # aligned_score >= boost_threshold -> taille x boost_multiplier
+  boost_multiplier: 1.5
   cache_ttl_seconds: 1800
 
 execution:
