@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 import numpy as np
 import pandas as pd
 
 from .technical import compute_features, in_session
+
+SentimentFilter = Callable[[pd.Timestamp, str], bool]
 
 
 @dataclass
@@ -48,7 +51,11 @@ def _summary(trades: pd.DataFrame, equity: pd.Series, capital: float) -> dict[st
     }
 
 
-def run_backtest(df: pd.DataFrame, cfg: dict) -> BacktestResult:
+def run_backtest(
+    df: pd.DataFrame,
+    cfg: dict,
+    sentiment_filter: SentimentFilter | None = None,
+) -> BacktestResult:
     feats = compute_features(df, cfg)
     rcfg = cfg["risk"]
     capital = float(rcfg["capital_eur"])
@@ -103,6 +110,10 @@ def run_backtest(df: pd.DataFrame, cfg: dict) -> BacktestResult:
                 side = "LONG"
             elif trend_dn and breakout_dn and rsi_short:
                 side = "SHORT"
+
+            if side is not None and sentiment_filter is not None:
+                if sentiment_filter(ts, side):
+                    side = None
 
             if side is not None:
                 sl_dist = row["atr"] * rcfg["sl_atr_multiple"]

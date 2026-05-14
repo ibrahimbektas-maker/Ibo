@@ -4,6 +4,8 @@ import argparse
 import json
 import logging
 import sys
+from datetime import timedelta
+from pathlib import Path
 
 import pandas as pd
 
@@ -14,9 +16,14 @@ from .config import (
     load_capital_credentials,
     load_yaml_config,
 )
-from .data import fetch_macro_features, fetch_yfinance_prices, macro_snapshot
+from .data import (
+    fetch_macro_features,
+    fetch_macro_features_range,
+    fetch_yfinance_prices,
+    macro_snapshot,
+)
 from .risk import RiskManager
-from .sentiment import SentimentAnalyzer
+from .sentiment import SentimentAnalyzer, build_backtest_sentiment_filter
 from .trader import Trader
 
 logging.basicConfig(
@@ -87,6 +94,8 @@ def cmd_backtest(
     yf_ticker: str = "GC=F",
     yf_interval: str = "15m",
     yf_period: str = "60d",
+    with_sentiment: bool = False,
+    sentiment_cache: str = ".backtest_sentiment_cache.json",
 ) -> int:
     if source == "csv":
         if not csv:
@@ -123,7 +132,30 @@ def cmd_backtest(
         log.error("Pas de données pour le backtest")
         return 4
 
-    result = run_backtest(df, cfg)
+    sentiment_filter = None
+    if with_sentiment:
+        anth = load_anthropic_settings()
+        if not anth.api_key:
+            log.error("ANTHROPIC_API_KEY manquant pour --with-sentiment")
+            return 2
+        start = df.index.min().to_pydatetime() - timedelta(days=10)
+        end = df.index.max().to_pydatetime() + timedelta(days=1)
+        log.info("sentiment: téléchargement macro daily du %s au %s", start.date(), end.date())
+        macro = fetch_macro_features_range(start, end)
+        if macro.empty:
+            log.error("Macro vide — sentiment désactivé")
+        else:
+            analyzer = SentimentAnalyzer(
+                anth, cache_ttl_seconds=cfg["sentiment"]["cache_ttl_seconds"]
+            )
+            sentiment_filter = build_backtest_sentiment_filter(
+                macro=macro,
+                analyzer=analyzer,
+                veto_threshold=float(cfg["sentiment"]["veto_threshold"]),
+                cache_path=Path(sentiment_cache),
+            )
+
+    result = run_backtest(df, cfg, sentiment_filter=sentiment_filter)
     print(json.dumps(result.metrics, indent=2, default=str))
     if not result.trades.empty:
         log.info("%d trades simulés", len(result.trades))
@@ -154,6 +186,16 @@ def main(argv: list[str] | None = None) -> int:
         default="60d",
         help="Période yfinance : 60d max pour <1h, 730d max pour 1h (def: 60d)",
     )
+    bt.add_argument(
+        "--with-sentiment",
+        action="store_true",
+        help="Filtre les trades via le sentiment Claude (appels API, cache disque par date)",
+    )
+    bt.add_argument(
+        "--sentiment-cache",
+        default=".backtest_sentiment_cache.json",
+        help="Fichier de cache du sentiment (def: .backtest_sentiment_cache.json)",
+    )
 
     args = parser.parse_args(argv)
     cfg = load_yaml_config()
@@ -168,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             yf_ticker=args.yf_ticker,
             yf_interval=args.yf_interval,
             yf_period=args.yf_period,
+            with_sentiment=args.with_sentiment,
+            sentiment_cache=args.sentiment_cache,
         )
     return 1
 

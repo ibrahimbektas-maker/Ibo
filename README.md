@@ -68,6 +68,14 @@ python -m ibo.main backtest --source yfinance --yf-interval 1h --yf-period 365d
 
 Note : les futures `GC=F` ne sont pas strictement identiques au spot XAU/USD (contango, roll), mais la corrélation est forte — suffisant pour valider la robustesse de la stratégie.
 
+**Backtest avec filtre sentiment Claude** — chaque entrée potentielle est soumise au LLM, qui peut vétoer selon le contexte macro du jour :
+
+```bash
+python -m ibo.main backtest --source yfinance --yf-interval 1h --yf-period 365d --with-sentiment
+```
+
+Les appels Claude sont mis en cache par date (UTC) dans `.backtest_sentiment_cache.json` — un rerun n'appelle plus l'API. Pour repartir de zéro, supprimer le fichier.
+
 ## Configuration
 
 Tout se passe dans `config.yaml` :

@@ -47,11 +47,10 @@ def fetch_yfinance_prices(
     return df[keep].sort_index()
 
 
-def fetch_macro_features(lookback_days: int = 30) -> pd.DataFrame:
+def fetch_macro_features_range(start: datetime, end: datetime) -> pd.DataFrame:
+    """Télécharge DXY/US10Y/VIX/BTC en daily sur la plage [start, end]."""
     import yfinance as yf
 
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=lookback_days)
     tickers = {
         "DXY": "DX-Y.NYB",
         "US10Y": "^TNX",
@@ -75,6 +74,12 @@ def fetch_macro_features(lookback_days: int = 30) -> pd.DataFrame:
     out = pd.concat(frames, axis=1).ffill().dropna(how="all")
     out.index = pd.to_datetime(out.index, utc=True)
     return out
+
+
+def fetch_macro_features(lookback_days: int = 30) -> pd.DataFrame:
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=lookback_days)
+    return fetch_macro_features_range(start, end)
 
 
 def daily_change_pct(df: pd.DataFrame, column: str, periods: int = 1) -> float | None:

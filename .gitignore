@@ -8,6 +8,7 @@ venv/
 *.log
 data/cache/
 backtest_results/
+.backtest_sentiment_cache.json
 .pytest_cache/
 .DS_Store
 .idea/
