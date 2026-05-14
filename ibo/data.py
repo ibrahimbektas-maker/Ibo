@@ -23,7 +23,10 @@ def fetch_macro_features(lookback_days: int = 30) -> pd.DataFrame:
         )
         if df.empty:
             continue
-        series = df["Close"].rename(name)
+        close = df["Close"]
+        if isinstance(close, pd.DataFrame):
+            close = close.squeeze("columns")
+        series = pd.Series(close).rename(name)
         frames.append(series)
     if not frames:
         return pd.DataFrame()
