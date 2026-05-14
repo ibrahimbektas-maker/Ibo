@@ -14,7 +14,7 @@ from .config import (
     load_capital_credentials,
     load_yaml_config,
 )
-from .data import fetch_macro_features, macro_snapshot
+from .data import fetch_macro_features, fetch_yfinance_prices, macro_snapshot
 from .risk import RiskManager
 from .sentiment import SentimentAnalyzer
 from .trader import Trader
@@ -80,7 +80,14 @@ def cmd_run_once(cfg: dict) -> int:
     return 0
 
 
-def cmd_backtest(cfg: dict, source: str, csv: str | None) -> int:
+def cmd_backtest(
+    cfg: dict,
+    source: str,
+    csv: str | None,
+    yf_ticker: str = "GC=F",
+    yf_interval: str = "15m",
+    yf_period: str = "60d",
+) -> int:
     if source == "csv":
         if not csv:
             log.error("--csv requis avec --source csv")
@@ -97,6 +104,16 @@ def cmd_backtest(cfg: dict, source: str, csv: str | None) -> int:
             epic=cfg["instrument"]["epic"],
             resolution=cfg["instrument"]["timeframe"],
             max_bars=1000,
+        )
+    elif source == "yfinance":
+        log.info(
+            "yfinance: ticker=%s interval=%s period=%s",
+            yf_ticker,
+            yf_interval,
+            yf_period,
+        )
+        df = fetch_yfinance_prices(
+            ticker=yf_ticker, interval=yf_interval, period=yf_period
         )
     else:
         log.error("Source inconnue : %s", source)
@@ -120,8 +137,23 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("run-once", help="Évaluer une fois et exécuter selon la config")
 
     bt = sub.add_parser("backtest", help="Backtest sur historique")
-    bt.add_argument("--source", default="capital", choices=["capital", "csv"])
+    bt.add_argument(
+        "--source", default="capital", choices=["capital", "csv", "yfinance"]
+    )
     bt.add_argument("--csv", help="Chemin CSV (colonnes : time, open, high, low, close)")
+    bt.add_argument(
+        "--yf-ticker", default="GC=F", help="Ticker yfinance (def: GC=F gold futures)"
+    )
+    bt.add_argument(
+        "--yf-interval",
+        default="15m",
+        help="Intervalle yfinance : 15m, 30m, 60m, 1h, 1d (def: 15m)",
+    )
+    bt.add_argument(
+        "--yf-period",
+        default="60d",
+        help="Période yfinance : 60d max pour <1h, 730d max pour 1h (def: 60d)",
+    )
 
     args = parser.parse_args(argv)
     cfg = load_yaml_config()
@@ -129,7 +161,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "run-once":
         return cmd_run_once(cfg)
     if args.cmd == "backtest":
-        return cmd_backtest(cfg, args.source, args.csv)
+        return cmd_backtest(
+            cfg,
+            args.source,
+            args.csv,
+            yf_ticker=args.yf_ticker,
+            yf_interval=args.yf_interval,
+            yf_period=args.yf_period,
+        )
     return 1
 
 

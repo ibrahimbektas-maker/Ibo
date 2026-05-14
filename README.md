@@ -56,6 +56,18 @@ python -m ibo.main backtest --source capital
 python -m ibo.main backtest --source csv --csv historique.csv
 ```
 
+**Backtest** sur historique étendu via yfinance (gold futures `GC=F`) — utile pour avoir un échantillon statistiquement significatif :
+
+```bash
+# 60 jours en M15 (max yfinance pour <1h) — ~5-6× plus de données que Capital.com
+python -m ibo.main backtest --source yfinance
+
+# 12 mois en H1 — recul plus long, granularité moindre
+python -m ibo.main backtest --source yfinance --yf-interval 1h --yf-period 365d
+```
+
+Note : les futures `GC=F` ne sont pas strictement identiques au spot XAU/USD (contango, roll), mais la corrélation est forte — suffisant pour valider la robustesse de la stratégie.
+
 ## Configuration
 
 Tout se passe dans `config.yaml` :

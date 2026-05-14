@@ -5,6 +5,48 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 
+def fetch_yfinance_prices(
+    ticker: str = "GC=F",
+    interval: str = "15m",
+    period: str = "60d",
+) -> pd.DataFrame:
+    """Télécharge l'historique OHLCV via yfinance et le ramène au format du backtest.
+
+    Limites yfinance :
+      - intervals < 1h : 60 jours max (15m/30m/60m)
+      - 1h            : 730 jours max
+      - 1d            : illimité
+    """
+    import yfinance as yf
+
+    df = yf.download(
+        ticker,
+        period=period,
+        interval=interval,
+        progress=False,
+        auto_adjust=False,
+    )
+    if df.empty:
+        return df
+
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    df = df.rename(
+        columns={
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Volume": "volume",
+        }
+    )
+    df.index = pd.to_datetime(df.index, utc=True)
+    df.index.name = "time"
+    keep = [c for c in ("open", "high", "low", "close", "volume") if c in df.columns]
+    return df[keep].sort_index()
+
+
 def fetch_macro_features(lookback_days: int = 30) -> pd.DataFrame:
     import yfinance as yf
 
