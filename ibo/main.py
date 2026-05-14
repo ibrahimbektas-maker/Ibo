@@ -97,9 +97,23 @@ def _seconds_until_next_bar(interval_minutes: int) -> float:
     return max(1.0, (next_bar - now).total_seconds())
 
 
-def cmd_run_loop(cfg: dict, interval_minutes: int = 15) -> int:
+def _attach_file_logger(path: str) -> None:
+    """Ajoute un FileHandler au root logger en plus du stream existant."""
+    handler = logging.FileHandler(path, encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    )
+    logging.getLogger().addHandler(handler)
+
+
+def cmd_run_loop(
+    cfg: dict, interval_minutes: int = 15, log_file: str | None = None
+) -> int:
     """Boucle infinie : évalue le marché toutes les `interval_minutes`, aligné sur
     les bornes UTC (00:00, 00:15, 00:30, ...). Ctrl+C pour arrêter."""
+    if log_file:
+        _attach_file_logger(log_file)
+        log.info("Logs persistés dans : %s", log_file)
     log.info(
         "run-loop démarré (intervalle=%d min, dry_run=%s). Ctrl+C pour stopper.",
         interval_minutes,
@@ -229,6 +243,11 @@ def main(argv: list[str] | None = None) -> int:
         default=15,
         help="Intervalle entre évaluations en minutes (def: 15)",
     )
+    rl.add_argument(
+        "--log-file",
+        default=None,
+        help="Fichier de log (en plus de stdout). Ex: bot.log",
+    )
 
     bt = sub.add_parser("backtest", help="Backtest sur historique")
     bt.add_argument(
@@ -272,7 +291,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "run-once":
         return cmd_run_once(cfg)
     if args.cmd == "run-loop":
-        return cmd_run_loop(cfg, interval_minutes=args.interval_minutes)
+        return cmd_run_loop(
+            cfg,
+            interval_minutes=args.interval_minutes,
+            log_file=args.log_file,
+        )
     if args.cmd == "backtest":
         return cmd_backtest(
             cfg,
