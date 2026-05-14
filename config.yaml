@@ -13,9 +13,9 @@ sessions:
   trade_only_in_sessions: true
 
 risk:
-  capital_eur: 1000
+  capital_eur: 200
   risk_per_trade_pct: 1.0
-  max_daily_loss_pct: 3.0
+  max_daily_loss_pct: 5.0
   max_open_positions: 1
   atr_period: 14
   sl_atr_multiple: 1.5
