@@ -35,7 +35,7 @@ sentiment:
   reduce_threshold: -0.4     # aligned_score <= reduce_threshold -> taille x reduce_multiplier
   reduce_multiplier: 0.5
   boost_threshold: 0.4       # aligned_score >= boost_threshold -> taille x boost_multiplier
-  boost_multiplier: 1.5
+  boost_multiplier: 1.0      # 1.0 = désactivé (le boost amplifie les pertes plus que les gains)
   cache_ttl_seconds: 1800
 
 execution:

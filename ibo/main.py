@@ -4,7 +4,8 @@ import argparse
 import json
 import logging
 import sys
-from datetime import timedelta
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -85,6 +86,37 @@ def cmd_run_once(cfg: dict) -> int:
         )
     )
     return 0
+
+
+def _seconds_until_next_bar(interval_minutes: int) -> float:
+    """Renvoie le nombre de secondes jusqu'au prochain alignement (UTC).
+    Ex: pour interval=15, attend la prochaine borne :00, :15, :30 ou :45."""
+    now = datetime.now(timezone.utc)
+    minute = now.minute - (now.minute % interval_minutes) + interval_minutes
+    next_bar = now.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=minute)
+    return max(1.0, (next_bar - now).total_seconds())
+
+
+def cmd_run_loop(cfg: dict, interval_minutes: int = 15) -> int:
+    """Boucle infinie : évalue le marché toutes les `interval_minutes`, aligné sur
+    les bornes UTC (00:00, 00:15, 00:30, ...). Ctrl+C pour arrêter."""
+    log.info(
+        "run-loop démarré (intervalle=%d min, dry_run=%s). Ctrl+C pour stopper.",
+        interval_minutes,
+        cfg["execution"]["dry_run"],
+    )
+    try:
+        while True:
+            try:
+                cmd_run_once(cfg)
+            except Exception as e:  # noqa: BLE001 — on log et on continue
+                log.exception("Erreur dans run-once : %s", e)
+            wait = _seconds_until_next_bar(interval_minutes)
+            log.info("Prochaine évaluation dans %.0fs", wait)
+            time.sleep(wait)
+    except KeyboardInterrupt:
+        log.info("Arrêt demandé (Ctrl+C). Bye.")
+        return 0
 
 
 def cmd_backtest(
@@ -187,6 +219,17 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("run-once", help="Évaluer une fois et exécuter selon la config")
 
+    rl = sub.add_parser(
+        "run-loop",
+        help="Évaluer en continu (aligné sur les bornes M15 UTC). Ctrl+C pour arrêter",
+    )
+    rl.add_argument(
+        "--interval-minutes",
+        type=int,
+        default=15,
+        help="Intervalle entre évaluations en minutes (def: 15)",
+    )
+
     bt = sub.add_parser("backtest", help="Backtest sur historique")
     bt.add_argument(
         "--source", default="capital", choices=["capital", "csv", "yfinance"]
@@ -228,6 +271,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "run-once":
         return cmd_run_once(cfg)
+    if args.cmd == "run-loop":
+        return cmd_run_loop(cfg, interval_minutes=args.interval_minutes)
     if args.cmd == "backtest":
         return cmd_backtest(
             cfg,

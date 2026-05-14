@@ -44,6 +44,18 @@ cp .env.example .env
 python -m ibo.main run-once
 ```
 
+**Mode continu** — tourne en boucle, aligné sur les bornes M15 UTC. Ctrl+C pour arrêter :
+
+```bash
+# en local
+python -m ibo.main run-loop
+
+# logs persistés dans un fichier
+python -m ibo.main run-loop > bot.log 2>&1
+```
+
+Par défaut le bot reste en `dry_run: true` (config.yaml) — aucun ordre réel n'est passé tant que tu n'as pas explicitement basculé le flag.
+
 **Backtest** sur l'historique récent Capital.com :
 
 ```bash
