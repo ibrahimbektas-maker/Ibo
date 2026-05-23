@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Secrets & etat runtime du bot
+.env
+*_state.json
+*_log.txt
+bt_*.csv
+yahoo_cache.csv
