@@ -56,6 +56,15 @@ NEWS_BLOCK_MINUTES   = 5
 # NOUVEAU : plafond journalier
 MAX_DAILY_TRADES = 40
 
+# ============================================================
+# COUTS DE TRANSACTION (manquaient dans la version d'origine)
+# ============================================================
+# Sans ces couts, le PnL est surestime -- surtout pour les variantes
+# a TP court et a forte frequence (D/E/F/G/H), ou le drag est maximal.
+SPREAD_POINTS       = 0.4   # spread aller-retour du GOLD (a ajuster selon ton broker)
+SLIPPAGE_PTS        = 0.2   # slippage sur ordre au marche (entree + sorties marche)
+GUARANTEED_STOP_FEE = 0.5   # prime stop garanti, prelevee si le filet broker se declenche
+
 
 # ============================================================
 # CONNEXION + DONNEES
@@ -164,19 +173,25 @@ def backtest(df, name, tp_pts=14.0, time_exit_min=None, time_exit_profit_only=Fa
             reason = None
             elapsed_min = (t - entry_time).total_seconds() / 60
 
+            # Filet broker (stop garanti) = intrabar sur low/high.
+            # TP (ordre limite broker) = intrabar sur high/low.
+            # SL interne = fermeture MANUELLE du bot sur un poll ~30s -> base sur
+            #   le prix courant (close), pas sur le wick intrabar. Cela evite le
+            #   biais "la bougie touche +TP et -8 dans la meme minute -> compte un TP"
+            #   et colle au comportement reel du bot.
             if pos_direction == "LONG":
                 if low <= sl_filet:
                     exit_price, reason = sl_filet, "SL_FILET"
                 elif high >= take_profit:
                     exit_price, reason = take_profit, "TP"
-                elif low <= sl_internal:
+                elif price <= sl_internal:
                     exit_price, reason = sl_internal, "SL_INTERNE"
             else:
                 if high >= sl_filet:
                     exit_price, reason = sl_filet, "SL_FILET"
                 elif low <= take_profit:
                     exit_price, reason = take_profit, "TP"
-                elif high >= sl_internal:
+                elif price >= sl_internal:
                     exit_price, reason = sl_internal, "SL_INTERNE"
 
             # Time exit
@@ -189,7 +204,15 @@ def backtest(df, name, tp_pts=14.0, time_exit_min=None, time_exit_profit_only=Fa
                     exit_price, reason = price, "TIME_EXIT"
 
             if exit_price is not None:
-                pnl_pts = (exit_price - entry_price) if pos_direction == "LONG" else (entry_price - exit_price)
+                gross_pts = (exit_price - entry_price) if pos_direction == "LONG" else (entry_price - exit_price)
+                # Couts : spread aller-retour + slippage d'entree (ordre marche).
+                cost_pts = SPREAD_POINTS + SLIPPAGE_PTS
+                if reason in ("SL_INTERNE", "TIME_EXIT", "TIME_EXIT_WIN"):
+                    cost_pts += SLIPPAGE_PTS          # sortie au marche -> slippage en plus
+                elif reason == "SL_FILET":
+                    cost_pts += GUARANTEED_STOP_FEE   # prime stop garanti au declenchement
+                # (TP = ordre limite : pas de slippage de sortie)
+                pnl_pts = gross_pts - cost_pts
                 trades.append({
                     "entry_time":  entry_time,
                     "exit_time":   t,
