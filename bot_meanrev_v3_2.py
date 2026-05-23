@@ -144,6 +144,7 @@ state = {
     "entry_time":            None,
     "open_timestamp":        None,
     "current_lot":           None,
+    "balance_at_open":       None,
     "sl_internal_price":     None,
     "sl_broker_price":       None,
     "daily_pnl":             0.0,
@@ -240,6 +241,7 @@ def reset_position_state():
     state["entry_time"]         = None
     state["open_timestamp"]     = None
     state["current_lot"]        = None
+    state["balance_at_open"]    = None
     state["sl_internal_price"]  = None
     state["sl_broker_price"]    = None
     state["last_trade_close_time"] = datetime.now().isoformat()
@@ -429,14 +431,21 @@ def get_balance():
 
 
 def get_positions():
+    """Retourne la liste des positions, ou None si l'appel a ECHOUE.
+    None != [] : [] = aucune position ouverte (info fiable),
+    None = appel impossible (timeout/401/erreur) -> on ne doit RIEN conclure.
+    """
     try:
         r = requests.get(BASE_URL + "/positions", headers=headers, timeout=15)
         if r.status_code == 200:
             return r.json().get("positions", [])
-        return []
+        if r.status_code == 401:
+            state["connected"] = False
+        log(f"get_positions HTTP {r.status_code}", "WARN")
+        return None
     except Exception as e:
         log(f"Erreur positions: {e}", "ERROR")
-        return []
+        return None
 
 
 # ─────────────────────────────────────────────
@@ -504,6 +513,8 @@ def find_position_id(direction, entry_price):
     Il faut rafraichir avant chaque close.
     """
     positions = get_positions()
+    if not positions:  # None (erreur API) ou [] (aucune position) -> introuvable
+        return None
     api_dir = "BUY" if direction == "LONG" else "SELL"
     strict_candidates = []
     loose_candidates  = []
@@ -576,8 +587,12 @@ def close_position_manual(direction, entry_price):
         fresh_id = find_position_id(direction, entry_price)
         if not fresh_id:
             log("Position introuvable dans /positions (peut-etre deja fermee broker?)", "WARN")
-            # Si la position n'existe plus, le broker l'a deja fermee -> succes implicite
-            if not [p for p in get_positions() if p.get("market", {}).get("epic") == EPIC]:
+            # On ne conclut "fermee" QUE si l'appel a reussi ET renvoie 0 position EPIC.
+            # Si get_positions() renvoie None (erreur/timeout), on NE conclut RIEN -> retry.
+            positions = get_positions()
+            if positions is None:
+                log("get_positions indisponible -> on ne conclut pas a une fermeture", "WARN")
+            elif not [p for p in positions if p.get("market", {}).get("epic") == EPIC]:
                 log("Aucune position EPIC ouverte -> consideree fermee", "INFO")
                 return True
         else:
@@ -711,6 +726,19 @@ def check_safety_limits():
 # ─────────────────────────────────────────────
 # ENREGISTREMENT TRADE
 # ─────────────────────────────────────────────
+def realized_pnl(direction, entry, exit_price, lot_used):
+    """PnL REEL via la variation de solde (capture frais, swap, slippage broker).
+    Comme on n'a qu'une position a la fois, balance_now - balance_at_open = PnL realise.
+    Fallback sur l'estimation par prix (poll) si le solde est indisponible."""
+    bal = get_balance()
+    bo  = state.get("balance_at_open")
+    if bal is not None and bo is not None:
+        return bal - bo
+    price_diff = exit_price - entry if direction == "LONG" else entry - exit_price
+    log("Solde indisponible -> PnL estime par prix (approximatif)", "WARN")
+    return price_diff * lot_used
+
+
 def record_trade(direction, entry, exit_price, pnl, reason, lot_used):
     state["daily_pnl"]    += pnl
     state["weekly_pnl"]   += pnl
@@ -754,12 +782,16 @@ def manage_open_position(current_price):
     lot_used    = state.get("current_lot") or 0
 
     positions = get_positions()
-    gold_pos  = [p for p in positions if p.get("market", {}).get("epic") == EPIC]
+    if positions is None:
+        # Erreur API/timeout : on ne sait PAS si la position est ouverte ou fermee.
+        # On ne touche a rien ce tour (sinon on "oublie" une position bien reelle).
+        log("get_positions indisponible -> position laissee en l'etat ce tour", "WARN")
+        return
+    gold_pos = [p for p in positions if p.get("market", {}).get("epic") == EPIC]
 
     # Cas 1 : position fermee par Capital.com (TP / SL filet / manuel)
     if not gold_pos:
-        price_diff = current_price - entry if pos == "LONG" else entry - current_price
-        pnl = price_diff * lot_used
+        pnl = realized_pnl(pos, entry, current_price, lot_used)
         record_trade(pos, entry, current_price, pnl, "BROKER", lot_used)
         reset_position_state()
         save_state()
@@ -777,9 +809,8 @@ def manage_open_position(current_price):
     success = close_position_manual(pos, entry)
 
     if success:
-        # Le close a reussi, ou le broker avait deja ferme. On lit le prix actuel.
-        price_diff = current_price - entry if pos == "LONG" else entry - current_price
-        pnl = price_diff * lot_used
+        # Le close a reussi, ou le broker avait deja ferme.
+        pnl = realized_pnl(pos, entry, current_price, lot_used)
         record_trade(pos, entry, current_price, pnl, "SL_INTERNE", lot_used)
         reset_position_state()
         save_state()
@@ -877,6 +908,7 @@ def open_position(signal, price, pct):
     state["entry_time"]         = now_str()
     state["open_timestamp"]     = datetime.now().isoformat()
     state["current_lot"]        = lot_size
+    state["balance_at_open"]    = balance
     state["sl_internal_price"]  = sl_internal_price
     state["sl_broker_price"]    = sl_broker_price
 
