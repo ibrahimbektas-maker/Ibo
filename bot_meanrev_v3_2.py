@@ -36,6 +36,20 @@ NEW 2 - Limites de securite en %
 NEW 3 - Stop equite global
   Si le compte chute de MAX_TOTAL_DD_PCT depuis START_BALANCE, bot s'arrete
   definitivement. Eviter le mode "death spiral".
+
+NEW 4 - Filtre regime F3 + TP=7
+  Le signal d'origine (ecart fixe) fade des tendances (PF ~1.11, drawdown -237).
+  Ajout d'un filtre : ne trader que si la MA90 est ~plate (|pente sur 30 barres|
+  <= SLOPE_MAX). Backtest 30j : PF 1.11 -> 1.43, drawdown -237 -> -64 pts.
+  TP passe de 14 a 7 (strategie B, meilleur couple avec le filtre).
+  ATTENTION : valide sur 1 mois de backtest seulement, jamais en forward-test.
+
+FIX 3 + FIX 4 (patch suivi de position)
+  - get_positions() renvoie None (et non []) sur erreur/timeout/401, pour ne
+    plus confondre "erreur API" avec "position fermee" (le bot oubliait sa
+    position et arretait le SL interne). Les callers distinguent None de [].
+  - PnL calcule sur la variation reelle du solde (balance_at_open) au lieu du
+    prix poll, pour que les limites de securite soient exactes.
 """
 
 import requests
@@ -85,13 +99,20 @@ if not all([API_KEY, API_SECRET, ACCOUNT_ID, TELEGRAM_TOKEN, TELEGRAM_CHAT]):
 MA_PERIOD       = 90
 DEVIATION_PTS   = 5.0
 SL_POINTS       = 8.0
-TP_POINTS       = 14.0
+TP_POINTS       = 7.0    # strategie B validee (etait 14 ; 7 = meilleur PF avec filtre F3)
 SL_BROKER_PTS   = 50.0   # filet broker, ajuste auto au minimum requis
 SL_SAFETY_MARGIN = 2.0
 SL_FALLBACK_PTS = 60.0
 USE_GUARANTEED_STOP = True
 COOLDOWN_BARS   = 10
 CANDLES_NEEDED  = 150
+
+# Filtre F3 (regime "MA plate") : ne fader que si la MA90 est ~horizontale,
+# pour ne PAS trader contre une tendance. Valide en backtest (PF 1.11 -> 1.43,
+# drawdown -237 -> -64). SLOPE_MAX plus petit = plus strict = moins de trades
+# mais meilleur PF (1 -> PF 1.57 ; 3 -> PF 1.43). 999 = filtre desactive.
+SLOPE_LOOKBACK  = 30
+SLOPE_MAX       = 3.0
 
 # ─────────────────────────────────────────────
 # SIZING DYNAMIQUE
@@ -617,13 +638,25 @@ def close_position_manual(direction, entry_price):
 # DETECTION MEAN-REVERSION
 # ─────────────────────────────────────────────
 def detect_mean_reversion_signal(df):
-    if len(df) < MA_PERIOD:
+    if len(df) < MA_PERIOD + SLOPE_LOOKBACK:
         return None, 0.0
     price_now = df["close"].iloc[-1]
     ma = df["close"].iloc[-MA_PERIOD:].mean()
     deviation = price_now - ma
+
+    # Filtre F3 : pente de la MA = MA actuelle - MA il y a SLOPE_LOOKBACK barres.
+    # On ne trade que si |pente| <= SLOPE_MAX (marche en range, pas en tendance).
+    ma_past = df["close"].iloc[-(MA_PERIOD + SLOPE_LOOKBACK):-SLOPE_LOOKBACK].mean()
+    slope = ma - ma_past
+
     log(f"Prix: {price_now:.2f} | MA{MA_PERIOD}: {ma:.2f} | Ecart: {deviation:+.2f}pts "
-        f"(seuil: +/-{DEVIATION_PTS})")
+        f"(seuil: +/-{DEVIATION_PTS}) | Pente: {slope:+.2f}pts/{SLOPE_LOOKBACK}b "
+        f"(max plat: {SLOPE_MAX})")
+
+    if abs(slope) > SLOPE_MAX:
+        log(f"Signal ignore -- MA en tendance (|pente| {abs(slope):.2f} > {SLOPE_MAX}pts)")
+        return None, 0.0
+
     if deviation > DEVIATION_PTS:
         return "SELL", abs(deviation)
     if deviation < -DEVIATION_PTS:

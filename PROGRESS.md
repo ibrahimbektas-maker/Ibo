@@ -47,18 +47,39 @@ Sur la base B, on n'entre que si la MA90 est ~horizontale (|pente sur 30 barres|
 F3 améliore les 3 critères à la fois (PF >1.3, drawdown ÷3.7, ≥40 trades) =
 signature d'un effet réel. F4 (RSI+MA plate) est MOINS bon → ne pas sur-filtrer.
 
-## Prochaines étapes (dans l'ordre)
-1. **Valider F3** (`backtest_f3_validation.py`) : PF reste-t-il >1.3 pour
-   SLOPE_MAX entre ~2 et 5 ? L'edge est-il présent sur la plupart des semaines,
-   pas juste une ? Si oui → robuste. Sinon → overfit, repartir.
-2. Si validé : **implémenter le filtre MA-plate dans `bot_meanrev_v3_2.py`**
-   (fonction `detect_mean_reversion_signal`), puis tester sur **compte démo**.
-3. Vérifier le **spread GOLD réel** dans Capital.com (j'ai supposé 0.4 pt ;
-   si c'est 0.6, ça réduit l'edge mais F3 garde de la marge).
-4. Rester en lot mini / démo tant que la robustesse n'est pas confirmée.
+## Validation de F3 (`backtest_f3_validation.py`)
+- **Sensibilité SLOPE_MAX : réussite franche.** PF décroît de façon lisse et
+  monotone quand on relâche le filtre (SM=1→PF 1.57, DD -46 ; SM=3→PF 1.43,
+  DD -64 ; sans filtre→PF 1.11, DD -237). Pas de pic isolé = effet structurel
+  réel, pas un calage sur une valeur.
+- **Consistance par semaine : réussite partielle.** 4/5 semaines positives,
+  MAIS ~75 % du profit vient d'une seule semaine (W20), 1 semaine perdante.
+  Edge réel mais grumeleux et dépendant du régime (logique : ne trade qu'en range).
 
-## Garde-fous
-- Ne jamais augmenter le sizing avant validation hors-échantillon.
-- Échantillon encore court (1 mois, 1 symbole) : prudence.
-- Les sécurités du bot (DD 25 %, perte hebdo 15 %, 3 pertes consécutives)
-  doivent rester actives.
+## ÉTAT ACTUEL DU BOT (déployé)
+F3 + TP7 sont **implémentés dans `bot_meanrev_v3_2.py`** :
+- `TP_POINTS = 7.0` (était 14), `SLOPE_MAX = 3.0`, `SLOPE_LOOKBACK = 30`
+- `detect_mean_reversion_signal` ignore le signal si |pente MA90 sur 30 barres| > 3
+- Les 2 fix critiques (get_positions None, PnL réel) sont aussi dedans.
+
+## DÉCISION DE L'UTILISATEUR
+Passage en **RÉEL au risque plein (1%/trade)**, malgré ma recommandation de
+faire d'abord un forward-test sur démo. Risques acceptés et documentés :
+stratégie validée sur 1 mois de backtest seulement, jamais en live, profit
+concentré sur 2 semaines, fix du bot jamais exécutés en conditions réelles.
+
+## Prochaines étapes / à surveiller
+1. **Surveiller de près les premiers jours** : le bot fait 3 jours en lot 0.01
+   (RAMP_UP) avant d'atteindre 1 %. Vérifier via Telegram /status que les
+   ouvertures/fermetures et le PnL sont corrects (c'est le 1er run des fix).
+2. Vérifier le **spread GOLD réel** dans Capital.com (supposé 0.4 ; si 0.6,
+   l'edge baisse mais F3 garde de la marge).
+3. Si le live diverge du backtest (fills, slippage SL interne) → réduire le
+   risque ou repasser en démo.
+4. Option plus prudente dispo à tout moment : `SLOPE_MAX = 1` ou `2`
+   (moins de trades, meilleur PF, drawdown plus faible).
+
+## Garde-fous (NE PAS désactiver)
+- Sécurités du bot actives : DD total 25 %, perte hebdo 15 %, perte jour 5 %,
+  3 pertes consécutives → pause.
+- Échantillon encore court (1 mois, 1 symbole) : ne pas augmenter au-delà de 1 %.
