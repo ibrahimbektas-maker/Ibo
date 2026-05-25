@@ -1,0 +1,88 @@
+//@version=6
+// =====================================================================
+// GOLD Mean-Reversion + Filtre F3 (MA plate)  -- replique de bot_meanrev_v3.2
+// =====================================================================
+// A utiliser sur le GRAPHIQUE 1 MINUTE du GOLD (ex: CAPITALCOM:GOLD ou OANDA:XAUUSD).
+// Strategie : on fade l'ecart a la MA90, MAIS seulement quand la MA est ~plate
+// (marche en range), pour ne pas trader contre une tendance.
+//
+// IMPORTANT pour un test realiste :
+//  - Onglet "Proprietes" de la strategie -> mettre une Commission/Slippage
+//    correspondant a ton spread GOLD (~0.4 a 0.6 pt aller-retour), sinon les
+//    resultats sont trop optimistes.
+//  - L'historique 1min est limite sur les comptes TradingView gratuits.
+// =====================================================================
+
+strategy("GOLD MeanRev + F3",
+     overlay              = true,
+     initial_capital      = 177,
+     default_qty_type     = strategy.fixed,
+     default_qty_value     = 1,
+     pyramiding           = 0,
+     calc_on_every_tick   = false)
+
+// ============================ INPUTS ============================
+maPeriod     = input.int(90,   "Periode MA",                group="Strategie")
+deviationPts = input.float(5.0,"Ecart mini a la MA (pts)",  group="Strategie")
+slPts        = input.float(8.0,"Stop Loss (pts)",           group="Strategie")
+tpPts        = input.float(7.0,"Take Profit (pts)",         group="Strategie")
+slopeLkb     = input.int(30,   "Pente MA : lookback (barres)", group="Filtre F3")
+slopeMax     = input.float(3.0,"Pente max = MA plate (pts)",   group="Filtre F3")
+hStart       = input.int(7,    "Heure debut (UTC)",         group="Horaire")
+hEnd         = input.int(15,   "Heure fin (UTC)",           group="Horaire")
+useNews      = input.bool(true,"Filtre news (8h/9h/12h30 UTC)", group="Horaire")
+maxDaily     = input.int(10,   "Max trades / jour",         group="Limites")
+cooldownMin  = input.int(10,   "Cooldown apres trade (min)",group="Limites")
+
+// ========================= INDICATEURS =========================
+ma    = ta.sma(close, maPeriod)
+dev   = close - ma                       // ecart prix - MA
+slope = ma - ma[slopeLkb]                // pente de la MA sur slopeLkb barres
+flat  = math.abs(slope) <= slopeMax      // F3 : MA ~horizontale
+
+// ============================ TEMPS ============================
+hUTC      = hour(time, "UTC")
+mUTC      = minute(time, "UTC")
+minsOfDay = hUTC * 60 + mUTC
+inWindow  = (hUTC >= hStart) and (hUTC < hEnd)
+
+isNews = false
+if useNews
+    isNews := (math.abs(minsOfDay - (8*60)) <= 5) or (math.abs(minsOfDay - (9*60)) <= 5) or (math.abs(minsOfDay - (12*60+30)) <= 5)
+
+// ===================== COMPTEUR JOURNALIER =====================
+var int tradesToday = 0
+isNewDay = dayofmonth(time, "UTC") != dayofmonth(time[1], "UTC")
+if isNewDay
+    tradesToday := 0
+
+// ========================== COOLDOWN ===========================
+var int lastExitTime = na
+// detecte une fermeture : on etait en position au bar precedent, plus maintenant
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    lastExitTime := time
+cooldownOk = na(lastExitTime) or (time - lastExitTime) >= cooldownMin * 60 * 1000
+
+// ========================== SIGNAUX ============================
+canEnter = inWindow and (not isNews) and flat and (tradesToday < maxDaily) and cooldownOk and (strategy.position_size == 0) and not na(slope)
+longSig  = canEnter and (dev < -deviationPts)   // prix sous la MA -> on achete (retour a la moyenne)
+shortSig = canEnter and (dev >  deviationPts)    // prix au-dessus -> on vend
+
+if longSig
+    strategy.entry("Long", strategy.long)
+    tradesToday += 1
+if shortSig
+    strategy.entry("Short", strategy.short)
+    tradesToday += 1
+
+// ===================== SORTIES SL / TP =========================
+if strategy.position_size > 0
+    strategy.exit("Sortie L", "Long",  stop = strategy.position_avg_price - slPts, limit = strategy.position_avg_price + tpPts)
+if strategy.position_size < 0
+    strategy.exit("Sortie S", "Short", stop = strategy.position_avg_price + slPts, limit = strategy.position_avg_price - tpPts)
+
+// ===================== VISUEL (optionnel) ======================
+plot(ma, "MA", color.new(color.orange, 0), 2)
+plot(ma + deviationPts, "Seuil haut", color.new(color.gray, 50))
+plot(ma - deviationPts, "Seuil bas",  color.new(color.gray, 50))
+bgcolor(flat and inWindow and not isNews ? color.new(color.green, 90) : na, title="Zone tradable (MA plate)")
