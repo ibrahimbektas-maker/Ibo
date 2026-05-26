@@ -40,7 +40,7 @@ WINDOWS = [
     ("9-11 +0 +17",          {0, 9, 10, 11, 17}),
 ]
 SLOPE_MAX_LIST = [3, 1]      # on teste 2 niveaux de filtre F3
-WEEKLY_WINDOW  = ("9-11 seul", {9, 10, 11})   # fenetre pour le detail hebdo
+WEEKLY_WINDOW  = ("7-15 sans 8/12/13/14", {7, 9, 10, 11})   # la fenetre gagnante
 WEEKLY_SLOPE   = 3
 
 
