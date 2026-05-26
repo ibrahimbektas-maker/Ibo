@@ -44,6 +44,12 @@ NEW 4 - Filtre regime F3 + TP=7
   TP passe de 14 a 7 (strategie B, meilleur couple avec le filtre).
   ATTENTION : valide sur 1 mois de backtest seulement, jamais en forward-test.
 
+NEW 5 - Blocage des heures de tendance
+  Analyse 5min/90j : a 8h, 12h, 13h, 14h UTC le gold TREND (autocorr positive)
+  -> fader y perd. On bloque les ENTREES a ces heures (BLOCKED_HOURS_UTC).
+  Backtest : PF 1.12 -> 1.25, drawdown -112 -> -48 pts. Le bot ne trade donc
+  plus qu'a 7h, 9h, 10h, 11h UTC. La gestion des positions ouvertes continue.
+
 FIX 3 + FIX 4 (patch suivi de position)
   - get_positions() renvoie None (et non []) sur erreur/timeout/401, pour ne
     plus confondre "erreur API" avec "position fermee" (le bot oubliait sa
@@ -128,6 +134,11 @@ RAMP_UP_LOT        = 0.01
 # ─────────────────────────────────────────────
 TRADING_HOUR_START_UTC = 7
 TRADING_HOUR_END_UTC   = 15
+
+# Heures de TENDANCE (momentum Londres/NY) ou fader perd : on n'OUVRE pas de
+# trade a ces heures (la gestion des positions deja ouvertes continue).
+# Backtest 5min/90j : bloquer ces heures -> PF 1.12->1.25, drawdown -112->-48.
+BLOCKED_HOURS_UTC = {8, 12, 13, 14}
 
 NEWS_BLOCK_TIMES_UTC = [(8, 0), (9, 0), (12, 30)]
 NEWS_BLOCK_MINUTES   = 5
@@ -998,6 +1009,10 @@ def analyse():
         manage_open_position(current_price)
         return
 
+    if h in BLOCKED_HOURS_UTC:
+        log(f"Heure {h}h UTC bloquee (heure de tendance) -- pas de nouvelle entree")
+        return
+
     signal, pct = detect_mean_reversion_signal(df)
     if signal is None:
         return
@@ -1045,7 +1060,8 @@ def daily_report():
 if __name__ == "__main__":
     print("=" * 70)
     print("   BOT GOLD MEAN-REV v3.2 -- Sizing dynamique + Fix SL interne")
-    print(f"   Fenetre : {TRADING_HOUR_START_UTC}h-{TRADING_HOUR_END_UTC}h UTC")
+    print(f"   Fenetre : {TRADING_HOUR_START_UTC}h-{TRADING_HOUR_END_UTC}h UTC "
+          f"(heures bloquees: {sorted(BLOCKED_HOURS_UTC)})")
     print(f"   Risque  : {RISK_PCT_PER_TRADE}% du capital par trade")
     print(f"   SL/TP   : {SL_POINTS}/{TP_POINTS} pts | stop "
           f"{'garanti' if USE_GUARANTEED_STOP else 'normal'}")
@@ -1087,7 +1103,7 @@ if __name__ == "__main__":
         f"Solde: {balance:.2f} EUR (start {state['start_balance']:.2f})",
         f"Mode ramp-up: jour {days_since_first_run()}/{RAMP_UP_DAYS}",
         f"Strategie: MEAN-REVERSION",
-        f"Fenetre  : {TRADING_HOUR_START_UTC}h-{TRADING_HOUR_END_UTC}h UTC",
+        f"Fenetre  : {TRADING_HOUR_START_UTC}h-{TRADING_HOUR_END_UTC}h UTC (bloque {sorted(BLOCKED_HOURS_UTC)})",
         f"SL/TP    : {SL_POINTS}/{TP_POINTS} pts | risque {RISK_PCT_PER_TRADE}%/trade",
         f"Securite : -{MAX_DAILY_LOSS_PCT}%/j | -{MAX_WEEKLY_LOSS_PCT}%/s | DD -{MAX_TOTAL_DD_PCT}%",
         f"Commandes: /status /stop /resume /trades /emergency",

@@ -57,10 +57,20 @@ signature d'un effet réel. F4 (RSI+MA plate) est MOINS bon → ne pas sur-filtr
   Edge réel mais grumeleux et dépendant du régime (logique : ne trade qu'en range).
 
 ## ÉTAT ACTUEL DU BOT (déployé)
-F3 + TP7 sont **implémentés dans `bot_meanrev_v3_2.py`** :
+F3 + TP7 + blocage horaire sont **implémentés dans `bot_meanrev_v3_2.py`** :
 - `TP_POINTS = 7.0` (était 14), `SLOPE_MAX = 3.0`, `SLOPE_LOOKBACK = 30`
 - `detect_mean_reversion_signal` ignore le signal si |pente MA90 sur 30 barres| > 3
+- `BLOCKED_HOURS_UTC = {8,12,13,14}` : le bot n'OUVRE plus qu'à 7,9,10,11h UTC
+  (heures de tendance bloquées ; gestion des positions ouvertes inchangée)
 - Les 2 fix critiques (get_positions None, PnL réel) sont aussi dedans.
+
+## Analyse horaire (5min, 90j) -> blocage des heures de tendance
+`analyse_gold_5m.py` : dans la fenêtre 7-15, autocorr +0.017 (légèrement
+TENDANCIEL = mauvais pour fader). Détail : 9-11h mean-revertent (bon),
+8/12/13/14h trendent (mauvais). `backtest_hours_5m.py` confirme : fenêtre
+{7,9,10,11} -> PF 1.12->1.25 et drawdown -112->-48 (cohérent à SLOPE_MAX 1 ET 3).
+Limite : consistance hebdo modeste (8/14 semaines +, profit sur 2 semaines) ;
+analyse sur 5min alors que le bot est 1min -> le live sert de forward-test.
 
 ## DÉCISION DE L'UTILISATEUR
 Passage en **RÉEL au risque plein (1%/trade)**, malgré ma recommandation de
