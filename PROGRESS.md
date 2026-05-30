@@ -57,12 +57,17 @@ signature d'un effet réel. F4 (RSI+MA plate) est MOINS bon → ne pas sur-filtr
   Edge réel mais grumeleux et dépendant du régime (logique : ne trade qu'en range).
 
 ## ÉTAT ACTUEL DU BOT (déployé)
-F3 + TP7 + blocage horaire sont **implémentés dans `bot_meanrev_v3_2.py`** :
-- `TP_POINTS = 7.0` (était 14), `SLOPE_MAX = 3.0`, `SLOPE_LOOKBACK = 30`
-- `detect_mean_reversion_signal` ignore le signal si |pente MA90 sur 30 barres| > 3
-- `BLOCKED_HOURS_UTC = {8,12,13,14}` : le bot n'OUVRE plus qu'à 7,9,10,11h UTC
-  (heures de tendance bloquées ; gestion des positions ouvertes inchangée)
-- Les 2 fix critiques (get_positions None, PnL réel) sont aussi dedans.
+Config dans `bot_meanrev_v3_2.py` :
+- `TP_POINTS = 7.0`, `SLOPE_MAX = 3.0`, `SLOPE_LOOKBACK = 30`
+- F3 actif : pas de signal si |pente MA90 sur 30 barres| > 3
+- **Fenêtre 15:00-18:45 UTC** (précis à la minute via `is_in_trading_window()`)
+  → s'aligne avec l'analyse autocorr (h17 mean-reverting, h15/h16/h18 neutres
+  à légèrement mean-rev). Évite les heures de tendance par construction.
+- **`MAX_DAILY_TRADES = 2`** (ramené de 10 → contrôle strict du risque/jour)
+- `BLOCKED_HOURS_UTC = set()` (vide ; le mécanisme reste si besoin futur)
+- Les 2 fix critiques (get_positions None, PnL réel) sont actifs.
+- ⚠️ **La nouvelle fenêtre n'a PAS encore été backtestée** → lancer
+  `backtest_walkforward_5m.py` avant de redéployer pour valider.
 
 ## Analyse horaire (5min, 90j) -> blocage des heures de tendance
 `analyse_gold_5m.py` : dans la fenêtre 7-15, autocorr +0.017 (légèrement

@@ -50,6 +50,15 @@ NEW 5 - Blocage des heures de tendance
   Backtest : PF 1.12 -> 1.25, drawdown -112 -> -48 pts. Le bot ne trade donc
   plus qu'a 7h, 9h, 10h, 11h UTC. La gestion des positions ouvertes continue.
 
+NEW 6 - Nouvelle fenetre 15:00-18:45 UTC + max 2 trades/jour
+  Decision utilisateur : resserrer la fenetre sur la session NY apres son
+  ouverture (15:00-18:45 UTC, precis a la minute) et limiter a 2 trades/jour.
+  Coherent avec l'analyse horaire : h17 UTC est mean-reverting (-0.070),
+  h15/h16/h18 sont neutres a legerement mean-rev. BLOCKED_HOURS_UTC vide
+  (la fenetre evite deja les heures de tendance). ATTENTION : ce changement
+  est SANS backtest dedie au moment du deploiement -- a valider via le
+  walk-forward sur la nouvelle config avant de redeployer en confiance.
+
 FIX 3 + FIX 4 (patch suivi de position)
   - get_positions() renvoie None (et non []) sur erreur/timeout/401, pour ne
     plus confondre "erreur API" avec "position fermee" (le bot oubliait sa
@@ -132,13 +141,17 @@ RAMP_UP_LOT        = 0.01
 # ─────────────────────────────────────────────
 # FENETRE HORAIRE
 # ─────────────────────────────────────────────
-TRADING_HOUR_START_UTC = 7
-TRADING_HOUR_END_UTC   = 15
+# Fenetre 15h00 -> 18h45 UTC (precise a la minute, via is_in_trading_window).
+TRADING_HOUR_START_UTC = 15
+TRADING_MIN_START_UTC  = 0
+TRADING_HOUR_END_UTC   = 18
+TRADING_MIN_END_UTC    = 45
 
-# Heures de TENDANCE (momentum Londres/NY) ou fader perd : on n'OUVRE pas de
-# trade a ces heures (la gestion des positions deja ouvertes continue).
-# Backtest 5min/90j : bloquer ces heures -> PF 1.12->1.25, drawdown -112->-48.
-BLOCKED_HOURS_UTC = {8, 12, 13, 14}
+# Plus de blocage par heure : la fenetre 15-18:45 est deja choisie pour eviter
+# les heures de tendance (8/12/13/14 UTC) et s'aligner sur l'analyse autocorr
+# (h17 = mean-reverting -0.070). On laisse l'ensemble vide pour preserver le
+# mecanisme si on veut bloquer ponctuellement une heure plus tard.
+BLOCKED_HOURS_UTC = set()
 
 NEWS_BLOCK_TIMES_UTC = [(8, 0), (9, 0), (12, 30)]
 NEWS_BLOCK_MINUTES   = 5
@@ -146,7 +159,7 @@ NEWS_BLOCK_MINUTES   = 5
 # ─────────────────────────────────────────────
 # LIMITES SECURITE (toutes en % du capital initial)
 # ─────────────────────────────────────────────
-MAX_DAILY_TRADES        = 10
+MAX_DAILY_TRADES        = 2      # limite stricte (ramene de 10 a 2)
 MAX_DAILY_LOSS_PCT      = 5.0    # -5% du capital initial sur une journee
 MAX_WEEKLY_LOSS_PCT     = 15.0
 MAX_CONSECUTIVE_LOSSES  = 3
@@ -214,6 +227,15 @@ def now_str():
 
 def now_utc_hour():
     return datetime.utcnow().hour
+
+
+def is_in_trading_window():
+    """True si l'heure courante UTC est dans [START, END), precis a la minute."""
+    n = datetime.utcnow()
+    cur = n.hour * 60 + n.minute
+    start = TRADING_HOUR_START_UTC * 60 + TRADING_MIN_START_UTC
+    end   = TRADING_HOUR_END_UTC   * 60 + TRADING_MIN_END_UTC
+    return start <= cur < end
 
 
 def is_news_window():
@@ -326,7 +348,7 @@ def telegram_check_commands():
 
             if msg == "/status":
                 pos = state["current_position"] or "Aucune"
-                in_window = TRADING_HOUR_START_UTC <= now_utc_hour() < TRADING_HOUR_END_UTC
+                in_window = is_in_trading_window()
                 balance = get_balance()
 
                 lines = ["STATUS BOT MEAN-REV v3.2"]
@@ -988,7 +1010,7 @@ def analyse():
     reset_weekly_if_new_week()
 
     h = now_utc_hour()
-    if not (TRADING_HOUR_START_UTC <= h < TRADING_HOUR_END_UTC):
+    if not is_in_trading_window():
         if state["current_position"] is not None:
             df = get_minute_data()
             if df is not None and len(df) > 0:
@@ -1060,8 +1082,9 @@ def daily_report():
 if __name__ == "__main__":
     print("=" * 70)
     print("   BOT GOLD MEAN-REV v3.2 -- Sizing dynamique + Fix SL interne")
-    print(f"   Fenetre : {TRADING_HOUR_START_UTC}h-{TRADING_HOUR_END_UTC}h UTC "
-          f"(heures bloquees: {sorted(BLOCKED_HOURS_UTC)})")
+    print(f"   Fenetre : {TRADING_HOUR_START_UTC:02d}:{TRADING_MIN_START_UTC:02d}"
+          f"-{TRADING_HOUR_END_UTC:02d}:{TRADING_MIN_END_UTC:02d} UTC "
+          f"| max {MAX_DAILY_TRADES} trades/jour")
     print(f"   Risque  : {RISK_PCT_PER_TRADE}% du capital par trade")
     print(f"   SL/TP   : {SL_POINTS}/{TP_POINTS} pts | stop "
           f"{'garanti' if USE_GUARANTEED_STOP else 'normal'}")
@@ -1103,7 +1126,8 @@ if __name__ == "__main__":
         f"Solde: {balance:.2f} EUR (start {state['start_balance']:.2f})",
         f"Mode ramp-up: jour {days_since_first_run()}/{RAMP_UP_DAYS}",
         f"Strategie: MEAN-REVERSION",
-        f"Fenetre  : {TRADING_HOUR_START_UTC}h-{TRADING_HOUR_END_UTC}h UTC (bloque {sorted(BLOCKED_HOURS_UTC)})",
+        f"Fenetre  : {TRADING_HOUR_START_UTC:02d}:{TRADING_MIN_START_UTC:02d}"
+        f"-{TRADING_HOUR_END_UTC:02d}:{TRADING_MIN_END_UTC:02d} UTC | max {MAX_DAILY_TRADES} trades/jour",
         f"SL/TP    : {SL_POINTS}/{TP_POINTS} pts | risque {RISK_PCT_PER_TRADE}%/trade",
         f"Securite : -{MAX_DAILY_LOSS_PCT}%/j | -{MAX_WEEKLY_LOSS_PCT}%/s | DD -{MAX_TOTAL_DD_PCT}%",
         f"Commandes: /status /stop /resume /trades /emergency",

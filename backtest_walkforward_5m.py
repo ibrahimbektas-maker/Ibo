@@ -34,10 +34,14 @@ SL_POINTS       = 8.0
 TP_POINTS       = 7.0
 SLOPE_LOOKBACK  = 30
 SLOPE_MAX       = 3.0
-ALLOWED_HOURS   = {7, 9, 10, 11}     # fenetre actuelle du bot (apres blocage)
+# Fenetre actuelle du bot : 15:00-18:45 UTC (precis a la minute)
+TRADING_HOUR_START_UTC = 15
+TRADING_MIN_START_UTC  = 0
+TRADING_HOUR_END_UTC   = 18
+TRADING_MIN_END_UTC    = 45
 NEWS_BLOCK_TIMES_UTC = [(8, 0), (9, 0), (12, 30)]
 NEWS_BLOCK_MINUTES   = 5
-MAX_DAILY_TRADES = 10
+MAX_DAILY_TRADES = 2          # nouvelle limite stricte (etait 10)
 COOLDOWN_MIN     = 10
 
 SPREAD_POINTS       = 0.4
@@ -52,6 +56,13 @@ ROLLING_STEP_D   = 7      # pas en jours
 def is_news_window(dt):
     minutes = dt.hour * 60 + dt.minute
     return any(abs(minutes - (h * 60 + m)) <= NEWS_BLOCK_MINUTES for h, m in NEWS_BLOCK_TIMES_UTC)
+
+
+def in_window(dt):
+    """Fenetre 15:00-18:45 UTC precise a la minute."""
+    cur = dt.hour * 60 + dt.minute
+    return (TRADING_HOUR_START_UTC * 60 + TRADING_MIN_START_UTC) <= cur < \
+           (TRADING_HOUR_END_UTC * 60 + TRADING_MIN_END_UTC)
 
 
 def backtest(df):
@@ -96,7 +107,7 @@ def backtest(df):
                 continue
 
         if in_position:                       continue
-        if hour_arr[i] not in ALLOWED_HOURS:  continue
+        if not in_window(t):                  continue
         if is_news_window(t):                 continue
         if last_close_time is not None and (t - last_close_time).total_seconds() < COOLDOWN_MIN * 60:
             continue
@@ -154,7 +165,9 @@ if __name__ == "__main__":
     span_days = (t1 - t0).days
 
     print("=" * 86)
-    print(f" WALK-FORWARD 5 MIN -- strategie ACTUELLE figee (F3, h={sorted(ALLOWED_HOURS)})")
+    print(f" WALK-FORWARD 5 MIN -- strategie ACTUELLE figee")
+    print(f" Fenetre {TRADING_HOUR_START_UTC:02d}:{TRADING_MIN_START_UTC:02d}-"
+          f"{TRADING_HOUR_END_UTC:02d}:{TRADING_MIN_END_UTC:02d} UTC, max {MAX_DAILY_TRADES} trades/j, F3 SM={SLOPE_MAX}")
     print(f" Donnees : {len(df)} bougies, {span_days} jours ({t0:%Y-%m-%d} -> {t1:%Y-%m-%d})")
     print("=" * 86)
 
