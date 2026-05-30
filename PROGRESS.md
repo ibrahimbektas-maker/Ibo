@@ -56,6 +56,28 @@ signature d'un effet réel. F4 (RSI+MA plate) est MOINS bon → ne pas sur-filtr
   MAIS ~75 % du profit vient d'une seule semaine (W20), 1 semaine perdante.
   Edge réel mais grumeleux et dépendant du régime (logique : ne trade qu'en range).
 
+## PIVOT VERS MODE SIGNAL (bot_signals.py)
+Après que mean-reversion ET trend-following naïfs aient tous deux échoué au
+walk-forward (1/3 blocs positifs chacun), pivot vers un mode **alertes
+seulement** : le bot scanne, envoie des push Telegram, l'humain décide.
+
+`bot_signals.py` (NOUVEAU, script séparé) :
+- Scanne le marché 1 min, n'exécute AUCUN ordre.
+- Détecte 2 setups : MEAN-REV (écart >= 5pts + MA plate) ET TREND (pente MA90 >= 5).
+- Envoie alertes Telegram avec prix, MA, écart, pente, SL/TP suggérés.
+- Anti-spam : cooldown 15min/type, max 20 alertes/jour, filtre news.
+- Fenêtre large par défaut (6h-21h UTC) — l'humain filtre par jugement.
+- Commandes : /status, /stop.
+
+Avantages du pivot :
+- Plus de pertes algo (pas d'exécution auto).
+- Plus de bug PnL / contamination par trades manuels.
+- Le bot devient un assistant 24/7, l'humain reste décideur.
+- Trades manuels indépendants : on peut trader à la main sans casser le bot.
+
+Le bot trading auto (`bot_meanrev_v3_2.py`) reste dans le repo mais ne doit
+plus tourner en réel tant qu'on n'a pas d'edge auto démontré.
+
 ## ÉTAT ACTUEL DU BOT (déployé)
 Config dans `bot_meanrev_v3_2.py` :
 - `TP_POINTS = 7.0`, `SLOPE_MAX = 3.0`, `SLOPE_LOOKBACK = 30`
