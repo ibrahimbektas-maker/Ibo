@@ -1,0 +1,8 @@
+# Dependances Python du projet (bot live + backtests + fetch).
+# Installation : pip install -r requirements.txt
+#
+# Le reste (collections, datetime, json, os, time) fait partie de la lib standard.
+
+requests>=2.28      # API Capital.com + Telegram (HTTP)
+pandas>=1.5         # series/dataframes : MA, pente, backtests
+schedule>=1.1       # boucle du bot live (analyse/30s, rapport quotidien)
