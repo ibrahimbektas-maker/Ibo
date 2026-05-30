@@ -172,6 +172,8 @@ INTERNAL_SL_RETRIES     = 5
 INTERNAL_SL_RETRY_DELAY = 2
 DEAL_OPEN_SETTLE_DELAY  = 5       # secondes apres ouverture avant 1er close possible
 POSITION_MATCH_TOLERANCE = 5.0    # pts de tolerance pour matcher la position par prix (gere le slippage broker)
+BALANCE_SETTLE_RETRIES  = 5       # lectures du solde apres cloture (le broker met qq s a booker le PnL)
+BALANCE_SETTLE_DELAY    = 2       # secondes entre deux lectures du solde post-cloture
 
 LOG_FILE   = "bot_meanrev_v3_2_log.txt"
 STATE_FILE = "bot_meanrev_v3_2_state.json"
@@ -248,11 +250,13 @@ def is_news_window():
 
 
 def today_str():
-    return date.today().strftime("%d/%m/%Y")
+    # UTC : coherent avec la fenetre de trading et les compteurs daily.
+    return datetime.utcnow().strftime("%d/%m/%Y")
 
 
 def current_week_id():
-    return datetime.now().strftime("%Y-W%U")
+    # UTC : la semaine de la limite de perte hebdo s'aligne sur la fenetre UTC.
+    return datetime.utcnow().strftime("%Y-W%U")
 
 
 def log(msg, level="INFO"):
@@ -321,7 +325,7 @@ def days_since_first_run():
         first_dt = date.fromisoformat(first)
     except (ValueError, TypeError):
         return 0
-    return (date.today() - first_dt).days
+    return (datetime.utcnow().date() - first_dt).days
 
 
 # ─────────────────────────────────────────────
@@ -671,15 +675,20 @@ def close_position_manual(direction, entry_price):
 # DETECTION MEAN-REVERSION
 # ─────────────────────────────────────────────
 def detect_mean_reversion_signal(df):
-    if len(df) < MA_PERIOD + SLOPE_LOOKBACK:
+    # +1 : la MA exclut la bougie courante (alignement avec le backtest qui fait
+    # rolling(MA_PERIOD).mean().shift(1)). Il faut donc une barre de plus en stock.
+    if len(df) < MA_PERIOD + SLOPE_LOOKBACK + 1:
         return None, 0.0
     price_now = df["close"].iloc[-1]
-    ma = df["close"].iloc[-MA_PERIOD:].mean()
+    # MA90 sur les 90 bougies PRECEDANT la courante (comme .shift(1) du backtest),
+    # comparee au prix courant -> meme definition d'ecart qu'en validation.
+    ma = df["close"].iloc[-(MA_PERIOD + 1):-1].mean()
     deviation = price_now - ma
 
     # Filtre F3 : pente de la MA = MA actuelle - MA il y a SLOPE_LOOKBACK barres.
     # On ne trade que si |pente| <= SLOPE_MAX (marche en range, pas en tendance).
-    ma_past = df["close"].iloc[-(MA_PERIOD + SLOPE_LOOKBACK):-SLOPE_LOOKBACK].mean()
+    # ma_past = meme fenetre MA decalee de SLOPE_LOOKBACK barres (toujours hors courante).
+    ma_past = df["close"].iloc[-(MA_PERIOD + SLOPE_LOOKBACK + 1):-(SLOPE_LOOKBACK + 1)].mean()
     slope = ma - ma_past
 
     log(f"Prix: {price_now:.2f} | MA{MA_PERIOD}: {ma:.2f} | Ecart: {deviation:+.2f}pts "
@@ -721,7 +730,7 @@ def compute_lot_size(balance):
 # LIMITES SECURITE
 # ─────────────────────────────────────────────
 def reset_daily_if_new_day():
-    today = date.today().isoformat()
+    today = datetime.utcnow().date().isoformat()
     if state["last_trade_day"] != today:
         state["daily_pnl"]      = 0.0
         state["daily_trades"]   = 0
@@ -792,13 +801,37 @@ def check_safety_limits():
 # ─────────────────────────────────────────────
 # ENREGISTREMENT TRADE
 # ─────────────────────────────────────────────
+def get_settled_balance(reference):
+    """Lit le solde APRES une cloture en attendant qu'il diverge de `reference`
+    (= balance_at_open). Le broker met quelques secondes a booker le PnL : lire
+    trop tot renvoie l'ancien solde -> PnL ~0 -> compteurs de securite fausses
+    (pertes consecutives, perte jour/semaine). On relit jusqu'a BALANCE_SETTLE_RETRIES
+    fois. Retourne (balance, settled). settled=False signifie que le solde n'a pas
+    bouge (vrai break-even ~0, ou broker tres lent) -> a verifier."""
+    last = None
+    for attempt in range(BALANCE_SETTLE_RETRIES):
+        bal = get_balance()
+        if bal is not None:
+            last = bal
+            if reference is None or abs(bal - reference) > 1e-9:
+                return bal, True
+        if attempt < BALANCE_SETTLE_RETRIES - 1:
+            time.sleep(BALANCE_SETTLE_DELAY)
+    return last, False
+
+
 def realized_pnl(direction, entry, exit_price, lot_used):
     """PnL REEL via la variation de solde (capture frais, swap, slippage broker).
     Comme on n'a qu'une position a la fois, balance_now - balance_at_open = PnL realise.
-    Fallback sur l'estimation par prix (poll) si le solde est indisponible."""
-    bal = get_balance()
+    On attend que le solde soit settle (booke par le broker) avant de conclure, sinon
+    le PnL et les compteurs de securite seraient fausses. Fallback sur l'estimation par
+    prix (poll) si le solde est indisponible."""
     bo  = state.get("balance_at_open")
+    bal, settled = get_settled_balance(bo)
     if bal is not None and bo is not None:
+        if not settled:
+            log("Solde non settle apres cloture (inchange) -> PnL=~0 retenu ; "
+                "verifier manuellement la position", "WARN")
         return bal - bo
     price_diff = exit_price - entry if direction == "LONG" else entry - exit_price
     log("Solde indisponible -> PnL estime par prix (approximatif)", "WARN")
@@ -1110,7 +1143,7 @@ if __name__ == "__main__":
         state["start_balance"] = balance
         log(f"Premier demarrage : start_balance = {balance:.2f} EUR")
     if state.get("first_run_date") is None:
-        state["first_run_date"] = date.today().isoformat()
+        state["first_run_date"] = datetime.utcnow().date().isoformat()
         log(f"first_run_date = {state['first_run_date']}")
     save_state()
 
