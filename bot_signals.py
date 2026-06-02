@@ -66,6 +66,12 @@ SL_SUGGESTED_PTS   = 8.0      # SL suggere dans l'alerte
 TP_MR_SUGGESTED    = 7.0      # TP mean-rev suggere
 TP_TREND_SUGGESTED = 20.0     # TP trend suggere (R:R plus large)
 
+# Quels signaux on emet
+# Eval 1-2 juin 2026 : MR a fait 16/16 TP, TREND 0/17 (entree systematiquement
+# au point d'epuisement de la tendance -> rebond contraire). On desactive TREND.
+ENABLE_MR    = True
+ENABLE_TREND = False
+
 # Fenetre de scan (large par defaut : tu filtres avec ton cerveau)
 WINDOW_START_HOUR_UTC = 6
 WINDOW_END_HOUR_UTC   = 21
@@ -341,22 +347,24 @@ def scan():
         f"pente {f['slope']:+.2f}")
 
     # Mean-rev (avec cooldown)
-    sig_mr = detect_mean_rev(f)
-    if sig_mr is not None:
-        mins = minutes_since(state.get("last_mr_alert_iso"))
-        if mins is None or mins >= ALERT_COOLDOWN_MIN:
-            send_signal("MEAN-REV", sig_mr, f)
-        else:
-            log(f"Mean-rev {sig_mr} mais cooldown ({mins:.1f}/{ALERT_COOLDOWN_MIN}min)")
+    if ENABLE_MR:
+        sig_mr = detect_mean_rev(f)
+        if sig_mr is not None:
+            mins = minutes_since(state.get("last_mr_alert_iso"))
+            if mins is None or mins >= ALERT_COOLDOWN_MIN:
+                send_signal("MEAN-REV", sig_mr, f)
+            else:
+                log(f"Mean-rev {sig_mr} mais cooldown ({mins:.1f}/{ALERT_COOLDOWN_MIN}min)")
 
     # Trend (avec cooldown)
-    sig_tr = detect_trend(f)
-    if sig_tr is not None:
-        mins = minutes_since(state.get("last_trend_alert_iso"))
-        if mins is None or mins >= ALERT_COOLDOWN_MIN:
-            send_signal("TREND", sig_tr, f)
-        else:
-            log(f"Trend {sig_tr} mais cooldown ({mins:.1f}/{ALERT_COOLDOWN_MIN}min)")
+    if ENABLE_TREND:
+        sig_tr = detect_trend(f)
+        if sig_tr is not None:
+            mins = minutes_since(state.get("last_trend_alert_iso"))
+            if mins is None or mins >= ALERT_COOLDOWN_MIN:
+                send_signal("TREND", sig_tr, f)
+            else:
+                log(f"Trend {sig_tr} mais cooldown ({mins:.1f}/{ALERT_COOLDOWN_MIN}min)")
 
 
 # ─────────────────────────────────────────────
