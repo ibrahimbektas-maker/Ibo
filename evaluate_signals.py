@@ -72,11 +72,26 @@ SIGNALS = [
 
 
 def next_5min_bar(dt):
-    """Plus petite frontiere de bougie 5min STRICTEMENT apres dt.
-    Le signal a 06:32 -> on regarde la bougie qui commence a 06:35.
-    Le signal a 06:55 -> on regarde la bougie qui commence a 07:00."""
-    floored = dt.replace(second=0, microsecond=0) - timedelta(minutes=dt.minute % 5)
-    return floored + timedelta(minutes=5)
+    """Renvoie l'instant de FIN de la premiere bougie 5min dont l'INTERVALLE
+    NE CONTIENT PAS dt.
+
+    Convention Capital.com : bougies datees sur leur fin -> bougie "T" couvre
+    (T-5min, T]. La bougie qui contient le signal melange action pre- et
+    post-signal : on la SAUTE pour eviter les faux TP/SL declenches par le
+    mouvement de prix AVANT que le signal soit emis.
+
+    Exemples (signal a 09:17) :
+      - bougie qui le contient : 09:20 (couvre 09:15->09:20, inclut 09:17)
+      - on saute, on demarre a la bougie 09:25 (couvre 09:20->09:25)
+    """
+    if dt.minute % 5 == 0 and dt.second == 0 and dt.microsecond == 0:
+        # dt est pile sur une frontiere 5min = fin de la bougie (dt-5, dt]
+        containing_end = dt
+    else:
+        excess = dt.minute % 5
+        floored = dt.replace(minute=dt.minute - excess, second=0, microsecond=0)
+        containing_end = floored + timedelta(minutes=5)
+    return containing_end + timedelta(minutes=5)
 
 
 def evaluate(df, sig):
