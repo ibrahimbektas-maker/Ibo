@@ -179,7 +179,7 @@ def main():
     print(f" Lookahead     : {MAX_LOOKAHEAD_MR*5}min MR, {MAX_LOOKAHEAD_TR*5}min TR")
     print("=" * 100)
 
-    fmt = "{:>3} {:<10} {:>5} {:<4} {:<4} {:>8} {:>8} {:<12} {:>+8} {:>5}"
+    fmt = "{:>3} {:<10} {:>5} {:<4} {:<4} {:>8} {:>8} {:<12} {:>8} {:>5}"
     print(fmt.format("#", "Date", "Heure", "Typ", "Dir", "Entry", "Exit",
                      "Outcome", "PnL net", "Bars"))
     print("-" * 100)
