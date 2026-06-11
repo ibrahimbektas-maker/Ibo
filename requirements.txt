@@ -6,3 +6,6 @@
 requests>=2.28      # API Capital.com + Telegram (HTTP)
 pandas>=1.5         # series/dataframes : MA, pente, backtests
 schedule>=1.1       # boucle du bot live (analyse/30s, rapport quotidien)
+yt-dlp>=2024.1      # extract_video_frames.py : telechargement TikTok/Insta/YouTube
+                    # /!\ ffmpeg doit aussi etre installe (binaire systeme,
+                    #     pas un package pip) : https://ffmpeg.org/download.html
