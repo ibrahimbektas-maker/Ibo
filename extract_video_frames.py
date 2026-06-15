@@ -30,6 +30,7 @@ Ne pas redistribuer le contenu, respecter les droits du createur.
 
 import sys
 import os
+import shutil
 import argparse
 import subprocess
 from pathlib import Path
@@ -37,6 +38,28 @@ from pathlib import Path
 
 # Appelle yt-dlp via le module Python (pas besoin de l'exe dans le PATH)
 YT_DLP_CMD = [sys.executable, "-m", "yt_dlp"]
+
+
+def find_ffmpeg():
+    """Cherche ffmpeg (.exe sous Windows) dans : PATH, dossier courant,
+    dossier du script. Renvoie le chemin trouve ou None."""
+    # 1) PATH systeme
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    # 2) Dossier courant et dossier du script
+    candidates = [Path.cwd(), Path(__file__).resolve().parent]
+    names = ["ffmpeg.exe", "ffmpeg"]
+    for d in candidates:
+        for n in names:
+            p = d / n
+            if p.is_file():
+                return str(p)
+    return None
+
+
+FFMPEG = find_ffmpeg()
+FFMPEG_CMD = [FFMPEG] if FFMPEG else ["ffmpeg"]
 
 
 def check_tool(cmd, name, install_hint):
@@ -84,8 +107,8 @@ def extract_frames(video_path, out_dir, interval_sec=20):
         old.unlink()
 
     print(f"Extraction : 1 image toutes les {interval_sec}s...")
-    cmd = [
-        "ffmpeg", "-y", "-i", str(video_path),
+    cmd = FFMPEG_CMD + [
+        "-y", "-i", str(video_path),
         "-vf", f"fps=1/{interval_sec}",
         "-q:v", "2",                  # qualite JPG haute
         str(frames_dir / "frame_%04d.jpg")
@@ -119,7 +142,8 @@ def main():
 
     print("Verification des outils...")
     ok_ytdlp  = check_tool(YT_DLP_CMD, "yt-dlp", "Installation : pip install yt-dlp")
-    ok_ffmpeg = check_tool(["ffmpeg"], "ffmpeg", "Installation : https://ffmpeg.org/download.html")
+    hint = "Place ffmpeg.exe dans " + str(Path(__file__).resolve().parent)
+    ok_ffmpeg = check_tool(FFMPEG_CMD, "ffmpeg", hint)
     if not (ok_ytdlp and ok_ffmpeg):
         sys.exit(1)
     print()
