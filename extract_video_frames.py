@@ -62,10 +62,11 @@ FFMPEG = find_ffmpeg()
 FFMPEG_CMD = [FFMPEG] if FFMPEG else ["ffmpeg"]
 
 
-def check_tool(cmd, name, install_hint):
-    """Verifie qu'un outil est appelable (cmd = liste pour subprocess)."""
+def check_tool(cmd, name, install_hint, version_flag="--version"):
+    """Verifie qu'un outil est appelable. ffmpeg utilise '-version' (un seul
+    tiret), yt-dlp utilise '--version' (deux tirets) -> param a passer."""
     try:
-        r = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=10)
+        r = subprocess.run(cmd + [version_flag], capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
             first_line = r.stdout.splitlines()[0] if r.stdout else r.stderr.splitlines()[0]
             print(f"  {name} : {first_line[:70]}")
@@ -141,9 +142,10 @@ def main():
     args = parser.parse_args()
 
     print("Verification des outils...")
-    ok_ytdlp  = check_tool(YT_DLP_CMD, "yt-dlp", "Installation : pip install yt-dlp")
+    ok_ytdlp  = check_tool(YT_DLP_CMD, "yt-dlp", "Installation : pip install yt-dlp",
+                           version_flag="--version")
     hint = "Place ffmpeg.exe dans " + str(Path(__file__).resolve().parent)
-    ok_ffmpeg = check_tool(FFMPEG_CMD, "ffmpeg", hint)
+    ok_ffmpeg = check_tool(FFMPEG_CMD, "ffmpeg", hint, version_flag="-version")
     if not (ok_ytdlp and ok_ffmpeg):
         sys.exit(1)
     print()
