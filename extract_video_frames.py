@@ -35,11 +35,14 @@ import subprocess
 from pathlib import Path
 
 
-def check_tool(name, install_hint):
-    """Verifie qu'un outil CLI est dispo dans le PATH."""
+# Appelle yt-dlp via le module Python (pas besoin de l'exe dans le PATH)
+YT_DLP_CMD = [sys.executable, "-m", "yt_dlp"]
+
+
+def check_tool(cmd, name, install_hint):
+    """Verifie qu'un outil est appelable (cmd = liste pour subprocess)."""
     try:
-        r = subprocess.run([name, "--version" if name == "ffmpeg" else "--version"],
-                           capture_output=True, text=True, timeout=5)
+        r = subprocess.run(cmd + ["--version"], capture_output=True, text=True, timeout=10)
         if r.returncode == 0:
             first_line = r.stdout.splitlines()[0] if r.stdout else r.stderr.splitlines()[0]
             print(f"  {name} : {first_line[:70]}")
@@ -60,10 +63,10 @@ def download_video(url, out_dir):
         return video_path
 
     print(f"Telechargement : {url}")
-    cmd = ["yt-dlp", "-o", str(video_path),
-           "-f", "mp4/best",     # privilegie mp4 pour ffmpeg
-           "--no-playlist",
-           url]
+    cmd = YT_DLP_CMD + ["-o", str(video_path),
+                        "-f", "mp4/best",     # privilegie mp4 pour ffmpeg
+                        "--no-playlist",
+                        url]
     r = subprocess.run(cmd, text=True)
     if r.returncode != 0 or not video_path.exists():
         print("ERREUR : yt-dlp a echoue. Verifie l'URL et ta connexion.")
@@ -115,8 +118,8 @@ def main():
     args = parser.parse_args()
 
     print("Verification des outils...")
-    ok_ytdlp  = check_tool("yt-dlp",  "Installation : pip install yt-dlp")
-    ok_ffmpeg = check_tool("ffmpeg",  "Installation : https://ffmpeg.org/download.html")
+    ok_ytdlp  = check_tool(YT_DLP_CMD, "yt-dlp", "Installation : pip install yt-dlp")
+    ok_ffmpeg = check_tool(["ffmpeg"], "ffmpeg", "Installation : https://ffmpeg.org/download.html")
     if not (ok_ytdlp and ok_ffmpeg):
         sys.exit(1)
     print()
