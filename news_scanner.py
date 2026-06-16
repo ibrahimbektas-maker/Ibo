@@ -85,9 +85,9 @@ CALENDAR_COUNTRIES = ["USD"]      # devises a surveiller (USD = principal moteur
 CALENDAR_IMPACT_LEVELS = ["High"] # niveau minimum d'impact ("Low", "Medium", "High")
 ALERT_BEFORE_EVENT_MIN = 30       # alerte 30 min avant l'event
 
-POLL_INTERVAL_NEWS_SEC     = 300  # 5 min
-POLL_INTERVAL_CALENDAR_SEC = 1800 # 30 min (le check fin se fait a chaque tick principal)
-MAIN_LOOP_TICK_SEC         = 60   # boucle principale toutes les minutes
+POLL_INTERVAL_NEWS_SEC     = 120  # 2 min (descendre sous 60s = inutile, les sources ne publient pas plus vite, et tu risques le rate-limit)
+POLL_INTERVAL_CALENDAR_SEC = 1800 # 30 min (les events bougent peu)
+MAIN_LOOP_TICK_SEC         = 30   # boucle principale toutes les 30s (granularite des alertes events)
 
 MAX_NEWS_PER_DAY = 25             # garde-fou anti-spam
 
