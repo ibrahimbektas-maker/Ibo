@@ -59,33 +59,45 @@ if not all([TELEGRAM_TOKEN, TELEGRAM_CHAT]):
 # CONFIG
 # ─────────────────────────────────────────────
 RSS_FEEDS = [
-    ("Forexlive Gold",  "https://www.forexlive.com/tag/gold/feed/"),
-    ("Forexlive News",  "https://www.forexlive.com/feed/"),
-    ("Investing.com",   "https://www.investing.com/rss/news.rss"),
+    # Sources FRANCAISES (prioritaires)
+    ("Investing.com FR",  "https://fr.investing.com/rss/news.rss"),
+    ("Boursorama",        "https://www.boursorama.com/rss/news.xml"),
+    ("Les Echos Marches", "https://services.lesechos.fr/rss/les-echos-finance-marches.xml"),
+    # Source EN specialisee or (Forexlive est le meilleur pour le gold mais en anglais)
+    ("Forexlive Gold",    "https://www.forexlive.com/tag/gold/feed/"),
 ]
 
 CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.xml"
 
-# Mots-cles pour filtrer les news. Si AU MOINS UN match dans le titre -> on push.
+# Mots-cles pour filtrer les news. Si AU MOINS UN match dans le titre (avec
+# limites de mots regex, donc "or" ne matchera PAS "for", "minor", etc.) -> push.
 KEYWORDS = [
-    # Gold / metaux
-    "gold", "xau", "xauusd", "bullion", "precious metal", "silver", "or ",
-    # Macro / Fed
-    "fed", "powell", "fomc", "cpi", "ppi", "nfp", "non-farm", "nonfarm",
-    "jobless", "unemployment", "rate", "rates", "yield", "treasury",
-    "inflation", "pce", "gdp", "retail sales", "ism", "pmi",
-    # Dollar
-    "dollar", "dxy", "greenback",
-    # Geopolitique (qui bouge le gold)
-    "war", "israel", "iran", "russia", "ukraine", "china", "tariff", "trump",
-    "central bank", "ecb", "boj", "boe",
+    # === FRANCAIS ===
+    # Or / metaux precieux
+    "or", "once d'or", "metaux precieux", "metal jaune", "lingot", "argent metal",
+    # Macro / banques centrales
+    "fed", "fomc", "bce", "powell", "lagarde",
+    "taux", "taux directeur", "ipc", "inflation", "deflation",
+    "chomage", "emploi", "salaires", "croissance", "pib",
+    # Dollar / devises
+    "dollar", "dxy", "billet vert", "euro-dollar", "eurusd",
+    # Geopolitique / marche
+    "guerre", "tension", "sanctions", "tarif", "tarifs", "douane",
+    "israel", "iran", "russie", "ukraine", "chine", "trump", "biden",
+    "petrole", "baril", "brent", "opep",
+    # === ANGLAIS (Forexlive et titres anglo) ===
+    "gold", "xau", "xauusd", "bullion", "silver", "precious metal",
+    "powell", "fomc", "cpi", "ppi", "nfp", "non-farm", "nonfarm",
+    "rate", "rates", "yield", "treasury", "pce", "gdp",
+    "retail sales", "ism", "pmi", "dxy", "greenback",
+    "war", "tariff", "ecb", "boj", "boe", "central bank",
 ]
 
 CALENDAR_COUNTRIES = ["USD"]      # devises a surveiller (USD = principal moteur du gold)
 CALENDAR_IMPACT_LEVELS = ["High"] # niveau minimum d'impact ("Low", "Medium", "High")
 ALERT_BEFORE_EVENT_MIN = 30       # alerte 30 min avant l'event
 
-POLL_INTERVAL_NEWS_SEC     = 120  # 2 min (descendre sous 60s = inutile, les sources ne publient pas plus vite, et tu risques le rate-limit)
+POLL_INTERVAL_NEWS_SEC     = 180  # 3 min (descendre sous 60s = inutile, risque rate-limit)
 POLL_INTERVAL_CALENDAR_SEC = 1800 # 30 min (les events bougent peu)
 MAIN_LOOP_TICK_SEC         = 30   # boucle principale toutes les 30s (granularite des alertes events)
 
@@ -197,10 +209,19 @@ def reset_daily_if_new_day():
 # ─────────────────────────────────────────────
 # NEWS RSS
 # ─────────────────────────────────────────────
+_KEYWORDS_RE = [(kw, re.compile(r"\b" + re.escape(kw) + r"s?\b", re.IGNORECASE))
+                for kw in KEYWORDS]   # s? = tolere les pluriels (tension/tensions, etc.)
+
+
 def title_matches_keywords(title):
-    t = title.lower()
-    for kw in KEYWORDS:
-        if kw in t:
+    """Match avec limites de mots regex : 'or' ne matchera PAS 'for', 'core', etc.
+    Mais bien 'or surges', 'l'or monte', 'cours de l'or'."""
+    if not title:
+        return None
+    # On supprime apostrophes pour que "l'or" soit traite comme "l or" -> "or" match au mot
+    t = title.replace("'", " ").replace("’", " ")
+    for kw, pat in _KEYWORDS_RE:
+        if pat.search(t):
             return kw
     return None
 
