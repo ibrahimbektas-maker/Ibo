@@ -160,14 +160,26 @@ def load_state():
 
 
 def telegram(msg):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        r = requests.post(url, json={"chat_id": TELEGRAM_CHAT, "text": msg,
-                                     "disable_web_page_preview": True}, timeout=10)
-        if r.status_code != 200:
-            log(f"Telegram HTTP {r.status_code}: {r.text[:100]}")
-    except Exception as e:
-        log(f"Erreur Telegram: {e}")
+    """Envoie sur Telegram avec timeout 20s + 1 retry sur timeout/erreur."""
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": TELEGRAM_CHAT, "text": msg, "disable_web_page_preview": True}
+    for attempt in (1, 2):
+        try:
+            r = requests.post(url, json=payload, timeout=20)
+            if r.status_code == 200:
+                return
+            log(f"Telegram HTTP {r.status_code}: {r.text[:120]}")
+            if r.status_code != 502 and r.status_code != 504:
+                return    # erreur applicative -> pas de retry
+        except requests.exceptions.Timeout:
+            if attempt == 1:
+                log(f"Telegram timeout (try 1/2), retry...")
+                time.sleep(2)
+                continue
+            log("Telegram timeout apres 2 essais, on abandonne ce message.")
+        except Exception as e:
+            log(f"Erreur Telegram: {e}")
+            return
 
 
 _last_update_id = 0
